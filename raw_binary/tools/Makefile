@@ -94,7 +94,6 @@ LIB2   = \
     -L$(JBIGLIB) -ljbig \
     -L$(ZLIBLIB) -lz \
     -L$(LZMALIB) -llzma \
-    -L$(SZIPLIB) -lsz \
     $(MATHLIB)
 
 LIB3   = \
@@ -134,7 +133,6 @@ LIB6   = \
     -L$(JBIGLIB) -ljbig \
     -L$(ZLIBLIB) -lz \
     -L$(LZMALIB) -llzma \
-    -L$(SZIPLIB) -lsz \
     $(MATHLIB)
 
 LIB7   = \
@@ -191,7 +189,6 @@ LIB12   = \
     -L$(JPEGLIB) -ljpeg \
     -L$(JBIGLIB) -ljbig \
     -L$(LZMALIB) -llzma \
-    -L$(SZIPLIB) -lsz \
     -L$(ZLIBLIB) -lz \
     $(MATHLIB) \
     -lpthread \
