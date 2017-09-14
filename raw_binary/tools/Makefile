@@ -184,7 +184,6 @@ LIB12   = \
     -L$(HDFEOS_GCTPLIB) -lGctp \
     -L$(HDF5LIB) -lhdf5_hl -lhdf5 \
     -L$(CURLLIB) -lcurl \
-    -L$(IDNLIB) -lidn \
     -L$(XML2LIB) -lxml2 \
     -L$(JPEGLIB) -ljpeg \
     -L$(JBIGLIB) -ljbig \
