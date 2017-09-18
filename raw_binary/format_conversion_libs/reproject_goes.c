@@ -218,21 +218,22 @@ ERROR           Error converting the GOES-R ABI band
 SUCCESS         Successfully converted GOES-R ABI band to raw binary
 
 NOTES:
-1. It is assumed the input bmeta and gmeta are populated from reading the
-   input GOES data.
-2. The bmeta pixel size and unit will be updated based on the reprojection.
-3. The gmeta will need to be updated by the calling routine, since the original
-   global metadata may be needed for other reasons (like reprojecting other
-   bands).
+1. It is assumed the input goes_bmeta and goes_gmeta structures are populated
+   from reading the input GOES data.
+2. The output bmeta pixel size and units will be updated based on the
+   reprojection.
+3. The output gmeta LR corner is updated based on the reprojected data.
 ******************************************************************************/
 int reproject_goes
 (
-    Espa_global_meta_t *gmeta,  /* I: pointer to global metadata */
-    Espa_band_meta_t *bmeta,    /* I: pointer to band metadata */
-    void *in_file_buf,          /* I: input file buffer for geostationary
-                                      data (nlines x nsamps) */
+    Espa_global_meta_t *goes_gmeta, /* I: GOES global metadata */
+    Espa_band_meta_t *goes_bmeta,   /* I: GOES band metadata */
+    Espa_global_meta_t *gmeta,  /* I/O: output/reprojected global metadata */
+    Espa_band_meta_t *bmeta,    /* I/O: output/reprojected band metadata */
+    void *in_file_buf,          /* I: input file buffer of GOES data,
+                                      nlines x nsamps */
     void **out_file_buf         /* I: pointer to output file buffer for
-                                      geographic data (nlines x nsamps) */
+                                      geographic data, nlines x nsamps */
 )
 {
     char FUNC_NAME[] = "reproject_goes";  /* function name */
@@ -250,7 +251,7 @@ int reproject_goes
     int16_t *out_file_buf_int16 = NULL; /* int16 pointer to the output buffer */
 
     /* Compute the output pixel size in degrees */
-    determine_pixsize_degs (gmeta, bmeta, &pixsize_x, &pixsize_y);
+    determine_pixsize_degs (goes_gmeta, goes_bmeta, &pixsize_x, &pixsize_y);
     printf ("DEBUG: Output pixel size for geographic: %lf x %lf\n", pixsize_x, pixsize_y);
 
     /* Determine the number of bytes per pixel for the output product */
@@ -284,15 +285,24 @@ int reproject_goes
     }
     else
     {
-        sprintf (errmsg, "Unsupported GOES-R ABI data type %d.",
+        sprintf (errmsg, "Unsupported GOES-R ABI data type %d",
             bmeta->data_type);
         error_handler (true, FUNC_NAME, errmsg);
         return (ERROR);
     }
 
-    /* Determine the new LR corner */
+    /* Determine the new LR corner for the output product */
     gmeta->lr_corner[0] = gmeta->ul_corner[0] - bmeta->nlines * pixsize_y;
     gmeta->lr_corner[1] = gmeta->ul_corner[1] + bmeta->nsamps * pixsize_x;
+    gmeta->proj_info.lr_corner[0] = gmeta->lr_corner[1]; /* x --> long */
+    gmeta->proj_info.lr_corner[1] = gmeta->lr_corner[0]; /* y --> lat */
+
+    /* Update the metadata for the current band in the output XML file.  Pixel
+       size and pixel units need to be updated.  Resampling type is NN. */
+    bmeta->pixel_size[0] = pixsize_x;
+    bmeta->pixel_size[1] = pixsize_y;
+    strcpy (bmeta->pixel_units, "degrees");
+    bmeta->resample_method = ESPA_NN;
 
     /* Loop through the lines and samples, starting at the UL corner, and
        determine the closest value in the input geostationary image to
@@ -306,7 +316,7 @@ int reproject_goes
         for (samp = 0; samp < bmeta->nsamps; samp++, lon += pixsize_x, pix++)
         {
             /* Determine the input x,y value for the current output lat,lon */
-            if (goes_latlon_to_xy (lat, lon, &gmeta->proj_info, &x, &y) !=
+            if (goes_latlon_to_xy (lat, lon, &goes_gmeta->proj_info, &x, &y) !=
                 SUCCESS)
             {
                 /* This pixel is not visible from the satellite, so mark it
@@ -321,15 +331,15 @@ int reproject_goes
                 /* Determine the location of the x, y value in the input
                    buffer.  Just using a NN approach since this supports both
                    image as well as data quality bands. */
-                x_loc = (int) roundf ((x - gmeta->proj_info.ul_corner[0]) /
-                    bmeta->pixel_size[0]);
-                y_loc = (int) roundf ((gmeta->proj_info.ul_corner[1] - y) /
-                    bmeta->pixel_size[1]);
+                x_loc = (int) roundf ((x - goes_gmeta->proj_info.ul_corner[0]) /
+                    goes_bmeta->pixel_size[0]);
+                y_loc = (int) roundf ((goes_gmeta->proj_info.ul_corner[1] - y) /
+                    goes_bmeta->pixel_size[1]);
 
                 /* If the x,y location doesn't fall within the valid input
                    image, then flag it as fill */
                 if (x_loc < 0 || y_loc < 0 ||
-                    x_loc >= bmeta->nsamps || y_loc >= bmeta->nlines)
+                    x_loc >= goes_bmeta->nsamps || y_loc >= goes_bmeta->nlines)
                 {
                     if (bmeta->data_type == ESPA_INT8)
                         out_file_buf_int8[pix] = bmeta->fill_value;
@@ -348,12 +358,6 @@ int reproject_goes
             }
         }
     }
-
-    /* Update the metadata for the current band in the XML file.  Pixel size
-       and pixel units need to be updated. */
-    bmeta->pixel_size[0] = pixsize_x;
-    bmeta->pixel_size[1] = pixsize_y;
-    strcpy (bmeta->pixel_units, "degrees");
 
     /* Successful conversion */
     return (SUCCESS);

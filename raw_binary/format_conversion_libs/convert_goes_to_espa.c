@@ -1169,9 +1169,6 @@ int read_goes_netcdf
             bmeta[i].valid_range[1] = ncdf_attr[i].valid_range[1];
         }
 
-        /* Set the resample method to none */
-        bmeta[i].resample_method = ESPA_NONE;
-
         /* Add production date/time and product version from the netCDF file */
         count = snprintf (bmeta[i].production_date,
             sizeof (bmeta[i].production_date), "%s", production_date);
@@ -1207,6 +1204,68 @@ int read_goes_netcdf
 
 
 /******************************************************************************
+MODULE:  setup_geo_xml
+
+PURPOSE: Copies the GOES XML metadata and sets up the geographic projection
+information for the reprojected data.
+
+RETURN VALUE:
+Type = int
+Value           Description
+-----           -----------
+ERROR           Error copying the GOES metadata
+SUCCESS         Successfully set up the geographic metadata
+
+NOTES:
+******************************************************************************/
+int setup_geo_xml
+(
+    Espa_internal_meta_t *goes_xml,  /* I: GOES metadata structure with input
+                                           projection and corner information */
+    Espa_internal_meta_t *xml_metadata  /* O: output metadata structure for
+                                              reprojected data */
+)
+{
+    char FUNC_NAME[] = "setup_geo_xml";  /* function name */
+    char errmsg[STR_SIZE];    /* error message */
+    Espa_global_meta_t *gmeta = &xml_metadata->global;  /* reprojected global
+                                                           metadata */
+
+    /* Copy the input GOES metadata structure */
+    if (copy_metadata_struct (goes_xml, xml_metadata) != SUCCESS)
+    {
+        sprintf (errmsg, "Copying the GOES XML metadata");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Update the projection information to be geographic instead of the
+       geostationary projection */
+    gmeta->proj_info.proj_type = GCTP_GEO_PROJ;
+    gmeta->proj_info.datum_type = ESPA_NAD83;
+    strcpy (gmeta->proj_info.units, "degrees");
+
+    /* Copy the lat/long corners from the overall image to the projection
+       corners, since the projection corners will be lat/long. */
+    gmeta->proj_info.ul_corner[0] = gmeta->ul_corner[1];  /* x --> long */
+    gmeta->proj_info.ul_corner[1] = gmeta->ul_corner[0];  /* y --> lat */
+    gmeta->proj_info.lr_corner[0] = gmeta->lr_corner[1];  /* x --> long */
+    gmeta->proj_info.lr_corner[1] = gmeta->lr_corner[0];  /* y --> lat */
+
+    /* Clear out the geostationary projection parameters */
+    gmeta->proj_info.semi_major_axis = ESPA_FLOAT_META_FILL;
+    gmeta->proj_info.semi_minor_axis = ESPA_FLOAT_META_FILL;
+    gmeta->proj_info.satellite_height = ESPA_FLOAT_META_FILL;
+    gmeta->proj_info.central_meridian = ESPA_FLOAT_META_FILL;
+    gmeta->proj_info.false_easting = ESPA_FLOAT_META_FILL;
+    gmeta->proj_info.false_northing = ESPA_FLOAT_META_FILL;
+
+    /* Successful setup */
+    return (SUCCESS);
+}
+
+
+/******************************************************************************
 MODULE:  convert_netcdf_to_img
 
 PURPOSE: Convert the GOES-R ABI netCDF band to an ESPA raw binary (.img) file
@@ -1228,8 +1287,10 @@ int convert_netcdf_to_img
     int primary_index,   /* I: index of the primary variable */
     nc_type native_data_type, /* I: native data type of the primary variable */
     int xml_band,        /* I: which band in the XML file is being processed */
-    Espa_internal_meta_t *xml_metadata   /* I: metadata structure for netCDF
-                                               file */
+    Espa_internal_meta_t *goes_xml,  /* I: GOES metadata structure with input
+                                           projection and corner information */
+    Espa_internal_meta_t *xml_metadata  /* I/O: output metadata structure for
+                                                reprojected data */
 )
 {
     char FUNC_NAME[] = "convert_netcdf_to_img";  /* function name */
@@ -1243,11 +1304,15 @@ int convert_netcdf_to_img
     void *reprojected_file_buf = NULL;  /* pointer to reprojected file buffer */
     FILE *fp_rb = NULL;       /* file pointer for the raw binary file */
     Envi_header_t envi_hdr;   /* output ENVI header information */
-    Espa_band_meta_t *bmeta = NULL;  /* pointer to band metadata */
-    Espa_global_meta_t *gmeta = &xml_metadata->global;  /* global metadata */
+    Espa_band_meta_t *bmeta = NULL;  /* pointer to reprojected band metadata */
+    Espa_band_meta_t *goes_bmeta = NULL;  /* pointer to GOES band metadata */
+    Espa_global_meta_t *gmeta = &xml_metadata->global;  /* reprojected global
+                                                           metadata */
+    Espa_global_meta_t *goes_gmeta = &goes_xml->global; /* global GOES meta */
 
     /* Set up the band metadata pointer */
     bmeta = &xml_metadata->band[xml_band];
+    goes_bmeta = &goes_xml->band[xml_band];
 
     /* Open the raw binary file for writing */
     img_file = bmeta->file_name;
@@ -1261,8 +1326,8 @@ int convert_netcdf_to_img
 
     /* Read the gridded data from the primary index in the netCDF file.
        Memory is allocated for the data buffer before the dataset is read. */
-    if (ncdf_read_gridded_var (ncid, primary_index, bmeta->nlines,
-        bmeta->nsamps, native_data_type, &file_buf) != SUCCESS)
+    if (ncdf_read_gridded_var (ncid, primary_index, goes_bmeta->nlines,
+        goes_bmeta->nsamps, native_data_type, &file_buf) != SUCCESS)
     {
         sprintf (errmsg, "Reading the gridded netCDF data");
         error_handler (true, FUNC_NAME, errmsg);
@@ -1270,8 +1335,8 @@ int convert_netcdf_to_img
     }
 
     /* Reproject the image from Geostationary to Geographic lat/long */
-    if (reproject_goes (gmeta, bmeta, file_buf, &reprojected_file_buf) !=
-        SUCCESS)
+    if (reproject_goes (goes_gmeta, goes_bmeta, gmeta, bmeta, file_buf,
+        &reprojected_file_buf) != SUCCESS)
     {
         sprintf (errmsg, "Reprojecting the gridded netCDF data");
         error_handler (true, FUNC_NAME, errmsg);
@@ -1305,8 +1370,8 @@ int convert_netcdf_to_img
 
     /* Free the memory */
     free (file_buf);
+    free (reprojected_file_buf);
 
-/* TODO GAIL -- gmeta needs to be updated to the new projection before writing */
     /* Create the ENVI header file this band */
     if (create_envi_struct (bmeta, gmeta, &envi_hdr) != SUCCESS)
     {
@@ -1343,7 +1408,8 @@ int convert_netcdf_to_img
 MODULE:  convert_goes_to_espa
 
 PURPOSE: Converts the input GOES-R ABI netCDF file to the ESPA internal raw
-binary file format (and associated XML file).
+binary file format (and associated XML file). The data are reprojected from
+the input geostationary projection to Geographic lat/long.
 
 RETURN VALUE:
 Type = int
@@ -1374,12 +1440,15 @@ int convert_goes_to_espa
     char errmsg[STR_SIZE];   /* error message */
     int ncid;                /* netCDF file ID */
     int xml_band;            /* band number for the current file in the XML */
-    Espa_internal_meta_t xml_metadata;  /* XML metadata structure to be
-                                populated by reading the MTL metadata file */
+    Espa_internal_meta_t goes_xml; /* XML metadata structure for temporarily
+                                      holding the GOES input metadata */
+    Espa_internal_meta_t xml_metadata; /* XML metadata structure to be
+                                          for the final Geographic product */
     Espa_ncdf_var_attr_t ncdf_attr[2]; /* file attributes for the netCDF primary
                                           variable ([0] - CMI, [1] - DQF) */
 
-    /* Initialize the metadata structure */
+    /* Initialize the input and output metadata structures */
+    init_metadata_struct (&goes_xml);
     init_metadata_struct (&xml_metadata);
 
     /* Open the GOES-R ABI netCDF file for reading */
@@ -1409,10 +1478,9 @@ int convert_goes_to_espa
         return (ERROR);
     }
 
-    /* Read the attributes from the netCDF file into the internal ESPA metadata
-       structure */
+    /* Read the attributes from the netCDF file into the GOES metadata struct */
     if (read_goes_netcdf (goes_netcdf_file, ncid, ncdf_attr, espa_xml_file,
-        &xml_metadata) != SUCCESS)
+        &goes_xml) != SUCCESS)
     {
         sprintf (errmsg, "Reading the GOES-R ABI netCDF file: %s",
             goes_netcdf_file);
@@ -1420,20 +1488,25 @@ int convert_goes_to_espa
         return (ERROR);
     }
 
+    /* Copy the input metadata to the output metadata, and set the geographic
+       projection correctly.  The data are being reprojected from geostationary
+       to geographic lat/long. */
+    if (setup_geo_xml (&goes_xml, &xml_metadata) != SUCCESS)
+    {
+        /* Already printed error message */
+        return (ERROR);
+    }
+
     /* Convert each of the GOES-R ABI netCDF bands to raw binary.  If we are
        starting with the first GOES-R Channel (ch02/red) file, then the CMI
        and DQF will be the first two bands in the XML file.  If we are
        processing/appending the ch03/nir file, then the CMI and DQF will be
-       the third and fourth bands in the XML file. */
-    if (append_bands)
-        xml_band = 2;
-    else
-        xml_band = 0;
-
+       the third and fourth bands in the output XML file. */
     /* CMI */
+    xml_band = 0;
     if (convert_netcdf_to_img (ncid, ncdf_attr[GOES_CMI].primary_index,
-        ncdf_attr[GOES_CMI].native_data_type, xml_band, &xml_metadata) !=
-        SUCCESS)
+        ncdf_attr[GOES_CMI].native_data_type, xml_band, &goes_xml,
+        &xml_metadata) != SUCCESS)
     {
         sprintf (errmsg, "Converting %s CMI to raw binary", goes_netcdf_file);
         error_handler (true, FUNC_NAME, errmsg);
@@ -1441,24 +1514,31 @@ int convert_goes_to_espa
     }
 
     /* DQF */
+    xml_band = 1;
     if (convert_netcdf_to_img (ncid, ncdf_attr[GOES_DQF].primary_index,
-        ncdf_attr[GOES_DQF].native_data_type, xml_band+1, &xml_metadata) !=
-        SUCCESS)
+        ncdf_attr[GOES_DQF].native_data_type, xml_band, &goes_xml,
+        &xml_metadata) != SUCCESS)
     {
         sprintf (errmsg, "Converting %s DQF to raw binary", goes_netcdf_file);
         error_handler (true, FUNC_NAME, errmsg);
         return (ERROR);
     }
 
-    /* Reset the global metadata since the data has been reprojected to
-       Geographic */
-/* TODO GAIL */
-
-    /* Write the metadata from our internal metadata structure to the output
-       XML filename */
-    if (write_metadata (&xml_metadata, espa_xml_file) != SUCCESS)
-    {  /* Error messages already written */
-        return (ERROR);
+    /* Write the output metadata from our internal metadata structure to the
+       output XML filename */
+    if (append_bands)
+    {  /* append the additional two bands */
+        if (append_metadata (2, xml_metadata.band, espa_xml_file) != SUCCESS)
+        {  /* Error messages already written */
+            return (ERROR);
+        }
+    }
+    else
+    {  /* create the XML metadata file from scratch */
+        if (write_metadata (&xml_metadata, espa_xml_file) != SUCCESS)
+        {  /* Error messages already written */
+            return (ERROR);
+        }
     }
 
     /* Validate the output metadata file */
@@ -1488,8 +1568,9 @@ int convert_goes_to_espa
         }
     }
 
-    /* Free the metadata structure */
+    /* Free the metadata structures */
     free_metadata (&xml_metadata);
+    free_metadata (&goes_xml);
 
     /* Successful conversion */
     return (SUCCESS);

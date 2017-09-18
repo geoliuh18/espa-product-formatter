@@ -235,11 +235,11 @@ int main (int argc, char** argv)
        file has already been created, so this time the bands will simply be
        appended. */
     append_bands = true;
-//    if (convert_goes_to_espa (nir_infile, xml_outfile, append_bands, del_src)
-//        != SUCCESS)
-//    {  /* Error messages already written */
-//        exit (EXIT_FAILURE);
-//    }
+    if (convert_goes_to_espa (nir_infile, xml_outfile, append_bands, del_src)
+        != SUCCESS)
+    {  /* Error messages already written */
+        exit (EXIT_FAILURE);
+    }
 
     /* Free the pointers */
     free (red_infile);

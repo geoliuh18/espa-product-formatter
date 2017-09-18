@@ -239,6 +239,12 @@ int subset_metadata_by_product
         inmeta->global.proj_info.origin_latitude;
     outmeta->global.proj_info.sphere_radius =
         inmeta->global.proj_info.sphere_radius;
+    outmeta->global.proj_info.semi_major_axis =
+        inmeta->global.proj_info.semi_major_axis;
+    outmeta->global.proj_info.semi_minor_axis =
+        inmeta->global.proj_info.semi_minor_axis;
+    outmeta->global.proj_info.satellite_height =
+        inmeta->global.proj_info.satellite_height;
     outmeta->global.orientation_angle = inmeta->global.orientation_angle;
 
     /* Copy the bands metadata, for those bands specified to be subset into
@@ -722,6 +728,12 @@ int subset_metadata_by_band
         inmeta->global.proj_info.origin_latitude;
     outmeta->global.proj_info.sphere_radius =
         inmeta->global.proj_info.sphere_radius;
+    outmeta->global.proj_info.semi_major_axis =
+        inmeta->global.proj_info.semi_major_axis;
+    outmeta->global.proj_info.semi_minor_axis =
+        inmeta->global.proj_info.semi_minor_axis;
+    outmeta->global.proj_info.satellite_height =
+        inmeta->global.proj_info.satellite_height;
     outmeta->global.orientation_angle = inmeta->global.orientation_angle;
 
     /* Copy the bands metadata, for those bands specified to be subset into

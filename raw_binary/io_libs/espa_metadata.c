@@ -175,9 +175,31 @@ void init_metadata_struct
     gmeta->bounding_coords[1] = ESPA_FLOAT_META_FILL;
     gmeta->bounding_coords[2] = ESPA_FLOAT_META_FILL;
     gmeta->bounding_coords[3] = ESPA_FLOAT_META_FILL;
+    gmeta->orientation_angle = ESPA_FLOAT_META_FILL;
+
+    /* Initialize the projection information */
     gmeta->proj_info.proj_type = ESPA_INT_META_FILL;
     gmeta->proj_info.datum_type = ESPA_NODATUM;
-    gmeta->orientation_angle = ESPA_FLOAT_META_FILL;
+    strcpy (gmeta->proj_info.units, ESPA_STRING_META_FILL);
+    gmeta->proj_info.ul_corner[0] = gmeta->proj_info.ul_corner[1] =
+        ESPA_FLOAT_META_FILL;
+    gmeta->proj_info.lr_corner[0] = gmeta->proj_info.lr_corner[1] =
+        ESPA_FLOAT_META_FILL;
+    strcpy (gmeta->proj_info.grid_origin, ESPA_STRING_META_FILL);
+
+    gmeta->proj_info.utm_zone = ESPA_INT_META_FILL;
+    gmeta->proj_info.longitude_pole = ESPA_FLOAT_META_FILL;
+    gmeta->proj_info.latitude_true_scale = ESPA_FLOAT_META_FILL;
+    gmeta->proj_info.false_easting = ESPA_FLOAT_META_FILL;
+    gmeta->proj_info.false_northing = ESPA_FLOAT_META_FILL;
+    gmeta->proj_info.standard_parallel1 = ESPA_FLOAT_META_FILL;
+    gmeta->proj_info.standard_parallel2 = ESPA_FLOAT_META_FILL;
+    gmeta->proj_info.central_meridian = ESPA_FLOAT_META_FILL;
+    gmeta->proj_info.origin_latitude = ESPA_FLOAT_META_FILL;
+    gmeta->proj_info.sphere_radius = ESPA_FLOAT_META_FILL;
+    gmeta->proj_info.semi_major_axis = ESPA_FLOAT_META_FILL;
+    gmeta->proj_info.semi_minor_axis = ESPA_FLOAT_META_FILL;
+    gmeta->proj_info.satellite_height = ESPA_FLOAT_META_FILL;
 }
 
 
@@ -435,6 +457,209 @@ void free_metadata
     /* Free the band pointer itself */
     if (internal_meta->band)
         free (internal_meta->band);
+}
+
+
+/******************************************************************************
+MODULE:  copy_metadata_struct
+
+PURPOSE:  Copies the ESPA internal metadata structure.
+
+RETURN VALUE:
+Type = int
+Value           Description
+-----           -----------
+ERROR           Error allocating memory for the new metadata structure
+SUCCESS         Successfully copied the metadata structure
+
+NOTES:
+******************************************************************************/
+int copy_metadata_struct
+(
+    Espa_internal_meta_t *in_meta,  /* I: input metadata struct to be copied */
+    Espa_internal_meta_t *out_meta  /* I: metadata structure to be created */
+)
+{
+    char FUNC_NAME[] = "copy_metadata_struct";   /* function name */
+    char errmsg[STR_SIZE];          /* error message */
+    int i, k;                       /* looping variables */
+    Espa_global_meta_t *in_gmeta = &in_meta->global; /* input global metadata
+                                                        structure */
+    Espa_global_meta_t *out_gmeta = &out_meta->global; /* output global metadata
+                                                          structure */
+    Espa_band_meta_t *in_bmeta = NULL;  /* ptr to array of input bands meta */
+    Espa_band_meta_t *out_bmeta = NULL; /* ptr to array of output bands meta */
+
+    /* Copy the global metadata values */
+    strcpy (out_gmeta->data_provider, in_gmeta->data_provider);
+    strcpy (out_gmeta->satellite, in_gmeta->satellite);
+    strcpy (out_gmeta->instrument, in_gmeta->instrument);
+    strcpy (out_gmeta->acquisition_date, in_gmeta->acquisition_date);
+
+    out_gmeta->ul_corner[0] = in_gmeta->ul_corner[0];
+    out_gmeta->ul_corner[1] = in_gmeta->ul_corner[1];
+    out_gmeta->lr_corner[0] = in_gmeta->lr_corner[0];
+    out_gmeta->lr_corner[1] = in_gmeta->lr_corner[1];
+    out_gmeta->bounding_coords[0] = in_gmeta->bounding_coords[0];
+    out_gmeta->bounding_coords[1] = in_gmeta->bounding_coords[1];
+    out_gmeta->bounding_coords[2] = in_gmeta->bounding_coords[2];
+    out_gmeta->bounding_coords[3] = in_gmeta->bounding_coords[3];
+
+    out_gmeta->wrs_system = in_gmeta->wrs_system;
+    out_gmeta->wrs_path = in_gmeta->wrs_path;
+    out_gmeta->wrs_row = in_gmeta->wrs_row;
+    strcpy (out_gmeta->scene_center_time, in_gmeta->scene_center_time);
+    strcpy (out_gmeta->product_id, in_gmeta->product_id);
+    strcpy (out_gmeta->lpgs_metadata_file, in_gmeta->lpgs_metadata_file);
+    out_gmeta->orientation_angle = in_gmeta->orientation_angle;
+    out_gmeta->solar_zenith = in_gmeta->solar_zenith;
+    out_gmeta->solar_azimuth = in_gmeta->solar_azimuth;
+    strcpy (out_gmeta->solar_units, in_gmeta->solar_units);
+    out_gmeta->earth_sun_dist = in_gmeta->earth_sun_dist;
+    strcpy (out_gmeta->level1_production_date,
+            in_gmeta->level1_production_date);
+    out_gmeta->htile = in_gmeta->htile;
+    out_gmeta->vtile = in_gmeta->vtile;
+
+    /* Initialize the projection information */
+    out_gmeta->proj_info.proj_type = in_gmeta->proj_info.proj_type;
+    out_gmeta->proj_info.datum_type = in_gmeta->proj_info.datum_type;
+    strcpy (out_gmeta->proj_info.units, in_gmeta->proj_info.units);
+    out_gmeta->proj_info.ul_corner[0] = in_gmeta->proj_info.ul_corner[0];
+    out_gmeta->proj_info.ul_corner[1] = in_gmeta->proj_info.ul_corner[1];
+    out_gmeta->proj_info.lr_corner[0] = in_gmeta->proj_info.lr_corner[0];
+    out_gmeta->proj_info.lr_corner[1] = in_gmeta->proj_info.lr_corner[1];
+    strcpy (out_gmeta->proj_info.grid_origin, in_gmeta->proj_info.grid_origin);
+
+    out_gmeta->proj_info.utm_zone = in_gmeta->proj_info.utm_zone;
+    out_gmeta->proj_info.longitude_pole = in_gmeta->proj_info.longitude_pole;
+    out_gmeta->proj_info.latitude_true_scale =
+        in_gmeta->proj_info.latitude_true_scale;
+    out_gmeta->proj_info.false_easting = in_gmeta->proj_info.false_easting;
+    out_gmeta->proj_info.false_northing = in_gmeta->proj_info.false_northing;
+    out_gmeta->proj_info.standard_parallel1 =
+        in_gmeta->proj_info.standard_parallel1;
+    out_gmeta->proj_info.standard_parallel2 = 
+        in_gmeta->proj_info.standard_parallel2;
+    out_gmeta->proj_info.central_meridian = 
+        in_gmeta->proj_info.central_meridian;
+    out_gmeta->proj_info.origin_latitude = in_gmeta->proj_info.origin_latitude;
+    out_gmeta->proj_info.sphere_radius = in_gmeta->proj_info.sphere_radius;
+    out_gmeta->proj_info.semi_major_axis = in_gmeta->proj_info.semi_major_axis;
+    out_gmeta->proj_info.semi_minor_axis = in_gmeta->proj_info.semi_minor_axis;
+    out_gmeta->proj_info.satellite_height = 
+        in_gmeta->proj_info.satellite_height;
+
+    /* Allocate the number of bands in the output metadata */
+    out_meta->nbands = in_meta->nbands;
+    out_meta->band = calloc (in_meta->nbands, sizeof (Espa_band_meta_t));
+    if (out_meta->band == NULL)
+    {
+        sprintf (errmsg, "Allocating ESPA band metadata for %d bands",
+            in_meta->nbands);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+    in_bmeta = in_meta->band;
+    out_bmeta = out_meta->band;
+
+    /* Set the nbits, nclass, ncover fields in the band metadata to 0 for each
+       band and initialize the pointers to NULL.  Initialize the other fields to
+       fill to make it easy to distinguish if they were populated by reading
+       an input metadata file or assigned directly. */
+    for (i = 0; i < in_meta->nbands; i++)
+    {
+        strcpy (out_bmeta[i].product, in_bmeta[i].product);
+        strcpy (out_bmeta[i].source, in_bmeta[i].source);
+        strcpy (out_bmeta[i].name, in_bmeta[i].name);
+        strcpy (out_bmeta[i].category, in_bmeta[i].category);
+        out_bmeta[i].data_type = in_bmeta[i].data_type;
+        out_bmeta[i].nlines = in_bmeta[i].nlines;
+        out_bmeta[i].nsamps = in_bmeta[i].nsamps;
+        out_bmeta[i].fill_value = in_bmeta[i].fill_value;
+        out_bmeta[i].saturate_value = in_bmeta[i].saturate_value;
+        out_bmeta[i].scale_factor = in_bmeta[i].scale_factor;
+        out_bmeta[i].add_offset = in_bmeta[i].add_offset;
+        out_bmeta[i].resample_method = in_bmeta[i].resample_method;
+
+        strcpy (out_bmeta[i].short_name, in_bmeta[i].short_name);
+        strcpy (out_bmeta[i].long_name, in_bmeta[i].long_name);
+        strcpy (out_bmeta[i].file_name, in_bmeta[i].file_name);
+        out_bmeta[i].pixel_size[0] = in_bmeta[i].pixel_size[0];
+        out_bmeta[i].pixel_size[1] = in_bmeta[i].pixel_size[1];
+
+        strcpy (out_bmeta[i].pixel_units, in_bmeta[i].pixel_units);
+        strcpy (out_bmeta[i].data_units, in_bmeta[i].data_units);
+        out_bmeta[i].valid_range[0] = in_bmeta[i].valid_range[0];
+        out_bmeta[i].valid_range[1] = in_bmeta[i].valid_range[1];
+
+        out_bmeta[i].rad_gain = in_bmeta[i].rad_gain;
+        out_bmeta[i].rad_bias = in_bmeta[i].rad_bias;
+        out_bmeta[i].refl_gain = in_bmeta[i].refl_gain;
+        out_bmeta[i].refl_bias = in_bmeta[i].refl_bias;
+        out_bmeta[i].k1_const = in_bmeta[i].k1_const;
+        out_bmeta[i].k2_const = in_bmeta[i].k2_const;
+        strcpy (out_bmeta[i].qa_desc, in_bmeta[i].qa_desc);
+        strcpy (out_bmeta[i].app_version, in_bmeta[i].app_version);
+        strcpy (out_bmeta[i].production_date, in_bmeta[i].production_date);
+
+        /* bit description */
+        out_bmeta[i].nbits = in_bmeta[i].nbits;
+        if (in_bmeta[i].nbits != 0)
+        {
+            if (allocate_bitmap_metadata (&out_bmeta[i], out_bmeta[i].nbits) !=
+                SUCCESS)
+            {  /* Error messages already printed */
+                return (ERROR);
+            }
+
+            for (k = 0; k < in_bmeta[i].nbits; k++)
+            {
+                strcpy (out_bmeta[i].bitmap_description[k],
+                    in_bmeta[i].bitmap_description[k]);
+            }
+        }
+
+        /* class description */
+        out_bmeta[i].nclass = in_bmeta[i].nclass;
+        if (in_bmeta[i].nclass != 0)
+        {
+            if (allocate_class_metadata (&out_bmeta[i], out_bmeta[i].nclass) !=
+                SUCCESS)
+            {  /* Error messages already printed */
+                return (ERROR);
+            }
+
+            for (k = 0; k < in_bmeta[i].nclass; k++)
+            {
+                 out_bmeta[i].class_values[k].class =
+                     in_bmeta[i].class_values[k].class;
+                 strcpy (out_bmeta[i].class_values[k].description,
+                     in_bmeta[i].class_values[k].description);
+            }
+        }
+
+        /* percent coverage */
+        out_bmeta[i].ncover = in_bmeta[i].ncover;
+        if (in_bmeta[i].ncover != 0)
+        {
+            if (allocate_percent_coverage_metadata (&out_bmeta[i],
+                out_bmeta[i].ncover) != SUCCESS)
+            {  /* Error messages already printed */
+                return (ERROR);
+            }
+
+            for (k = 0; k < in_bmeta[i].ncover; k++)
+            {
+                 out_bmeta[i].percent_cover[k].percent =
+                     in_bmeta[i].percent_cover[k].percent;
+                 strcpy (out_bmeta[i].percent_cover[k].description,
+                     in_bmeta[i].percent_cover[k].description);
+            }
+        }
+    }
+
+    return (SUCCESS);
 }
 
 

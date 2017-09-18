@@ -32,8 +32,8 @@ NOTES:
 #define ESPA_SCHEMA_VERSION "2.0"
 #define ESPA_NS "http://espa.cr.usgs.gov/v2"
 #define ESPA_SCHEMA_LOCATION "http://espa.cr.usgs.gov/v2"
-#define ESPA_SCHEMA "http://espa.cr.usgs.gov/schema/espa_internal_metadata_v2_1.xsd"
-#define LOCAL_ESPA_SCHEMA "/usr/local/espa-product-formatter/schema/espa_internal_metadata_v2_1.xsd"
+#define ESPA_SCHEMA "http://espa.cr.usgs.gov/schema/espa_internal_metadata_v2_0.xsd"
+#define LOCAL_ESPA_SCHEMA "/usr/local/espa-product-formatter/schema/espa_internal_metadata_v2_0.xsd"
 
 /* Data types */
 enum Espa_data_type
@@ -257,16 +257,16 @@ void free_metadata
                                                 structure */
 );
 
+int copy_metadata_struct
+(
+    Espa_internal_meta_t *in_meta,  /* I: input metadata struct to be copied */
+    Espa_internal_meta_t *out_meta  /* I: metadata structure to be created */
+);
+
 void print_element_names
 (
     xmlNode *a_node   /* I: pointer to the current node in the tree to start
                             printing */
-);
-
-void print_metadata_struct
-(
-    Espa_internal_meta_t *metadata  /* I: input metadata structure to be
-                                          printed */
 );
 
 #endif

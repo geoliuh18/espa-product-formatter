@@ -52,12 +52,14 @@ void determine_pixsize_degs
 
 int reproject_goes
 (
-    Espa_global_meta_t *gmeta,  /* I: pointer to global metadata */
-    Espa_band_meta_t *bmeta,    /* I: pointer to band metadata */
-    void *in_file_buf,          /* I: input file buffer for geostationary
-                                      data (nlines x nsamps) */
+    Espa_global_meta_t *goes_gmeta, /* I: GOES global metadata */
+    Espa_band_meta_t *goes_bmeta,   /* I: GOES band metadata */
+    Espa_global_meta_t *gmeta,  /* I/O: output global metadata */
+    Espa_band_meta_t *bmeta,    /* I/O: output band metadata */
+    void *in_file_buf,          /* I: input file buffer of GOES data,
+                                      nlines x nsamps */
     void **out_file_buf         /* I: pointer to output file buffer for
-                                      geographic data (nlines x nsamps) */
+                                      geographic data, nlines x nsamps */
 );
 
 #endif
