@@ -1,0 +1,1497 @@
+/*****************************************************************************
+FILE: convert_goes_to_espa.c
+  
+PURPOSE: Contains functions for reading GOES-R ABI netCDF products and writing
+to ESPA raw binary format.
+
+PROJECT:  Land Satellites Data System Science Research and Development (LSRD)
+at the USGS EROS
+
+LICENSE TYPE:  NASA Open Source Agreement Version 1.3
+
+NOTES:
+  1. The XML metadata format written via this library follows the ESPA internal
+     metadata format found in ESPA Raw Binary Format vX.Y.doc.  The schema for
+     the ESPA internal metadata format is available at
+     http://espa.cr.usgs.gov/schema/espa_internal_metadata_vX_Y.xsd.
+*****************************************************************************/
+#include <unistd.h>
+#include <ctype.h>
+#include "convert_goes_to_espa.h"
+
+
+/******************************************************************************
+MODULE:  doy_to_month_day
+
+PURPOSE: Convert the DOY to month and day.
+
+RETURN VALUE:
+Type = int
+Value           Description
+-----           -----------
+ERROR           Error converting from DOY to month and day
+SUCCESS         Successfully converted from the DOY to the month and day
+
+NOTES:
+******************************************************************************/
+int doy_to_month_day
+(
+    int year,            /* I: year of the DOY to be converted */
+    int doy,             /* I: DOY to be converted */
+    int *month,          /* O: month of the DOY */
+    int *day             /* O: day of the DOY */
+)
+{
+    char FUNC_NAME[] = "doy_to_month_day";  /* function name */
+    char errmsg[STR_SIZE];    /* error message */
+    bool leap;                /* is this a leap year? */
+    int i;                    /* looping variable */
+    int nday_lp[12] = {31, 29, 31, 30,  31,  30,  31,  31,  30,  31,  30,  31};
+        /* number of days in each month (for leap year) */
+    int idoy_lp[12] = { 1, 32, 61, 92, 122, 153, 183, 214, 245, 275, 306, 336};
+        /* starting DOY for each month (for leap year) */
+    int nday[12] = {31, 28, 31, 30,  31,  30,  31,  31,  30,  31,  30,  31};
+        /* number of days in each month (with Feb being a leap year) */
+    int idoy[12] = { 1, 32, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335};
+        /* starting DOY for each month */
+
+    /* Is this a leap year? */
+    leap = (bool) (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
+
+    /* Determine which month the DOY falls in */
+    *month = 0;
+    if (leap)
+    {  /* leap year -- start with February */
+        for (i = 1; i < 12; i++)
+        {
+            if (idoy_lp[i] > doy)
+            {
+                *month = i;
+                *day = doy - idoy_lp[i-1] + 1;
+                break;
+            }
+        }
+
+        /* if the month isn't set, then it's a December scene */
+        if (*month == 0)
+        {
+            *month = 12;
+            *day = doy - idoy_lp[11] + 1;
+        }
+    }
+    else
+    {  /* non leap year -- start with February */
+        for (i = 1; i < 12; i++)
+        {
+            if (idoy[i] > doy)
+            {
+                *month = i;
+                *day = doy - idoy[i-1] + 1;
+                break;
+            }
+        }
+
+        /* if the month isn't set, then it's a December scene */
+        if (*month == 0)
+        {
+            *month = 12;
+            *day = doy - idoy[11] + 1;
+        }
+    }
+
+    /* Validate the month and day */
+    if (*month < 1 || *month > 12)
+    {
+        sprintf (errmsg, "Invalid month: %d\n", *month);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    if (leap)
+    {  /* leap year */
+        if (*day < 1 || *day > nday_lp[(*month)-1])
+        {
+            sprintf (errmsg, "Invalid day: %d-%d-%d\n", year, *month, *day);
+            error_handler (true, FUNC_NAME, errmsg);
+            return (ERROR);
+        }
+    }
+    else
+    {  /* non leap year */
+        if (*day < 1 || *day > nday[(*month)-1])
+        {
+            sprintf (errmsg, "Invalid day: %d-%d-%d\n", year, *month, *day);
+            error_handler (true, FUNC_NAME, errmsg);
+            return (ERROR);
+        }
+    }
+
+    /* Successful conversion */
+    return (SUCCESS);
+}
+
+
+/******************************************************************************
+MODULE:  read_product_version
+
+PURPOSE: Reads the product version from the algorithm_product_version_container.
+
+RETURN VALUE:
+Type = int
+Value           Description
+-----           -----------
+ERROR           Error reading the product version from the netCDF file
+SUCCESS         Successfully obtained the product version from the netCDF file
+
+NOTES:
+******************************************************************************/
+int read_product_version
+(
+    int ncid,               /* I: netCDF file ID */
+    char *product_version   /* O: product version */
+)
+{
+    char FUNC_NAME[] = "read_product_version";  /* function name */
+    char errmsg[STR_SIZE];   /* error message */
+    int i;                   /* looping variable */
+    int retval;              /* return value */
+    int ndims;               /* number of input dimensions in netCDF file */
+    int nvars;               /* number of input variables in netCDF file */
+    int ngatts;              /* number of global attributes in netCDF file */
+    int unlimdimid;          /* ID of the unlimited dimension */
+    int primary_index;       /* index of the primary variable */
+    char in_varnames[MAX_GRIDDED_NVARS][NC_MAX_NAME+1]; /* var names as read */
+    int in_var_ndims[MAX_GRIDDED_NVARS];  /* num dims for each var as read */
+    int in_var_dimids[MAX_GRIDDED_NVARS][MAX_GRIDDED_NDIMS];
+                             /* array for the dimension IDs as read */
+    int in_var_natts[MAX_GRIDDED_NVARS];  /* number of var attributes as read */
+    nc_type in_data_type[MAX_GRIDDED_NVARS];
+                             /* data type for each variable as read */
+
+    /* Determine how many netCDF variables, dimensions, and global attributes
+       are in the file; also the dimension id of the unlimited dimension, if
+       there is one. */
+    if ((retval = nc_inq (ncid, &ndims, &nvars, &ngatts, &unlimdimid)))
+    {
+        nc_strerror (retval);
+        sprintf (errmsg, "Error inquiring about the variables, dimensions, "
+            "global attributes, etc. for the netCDF file.");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+printf ("Number of variables: %d\n", nvars);
+printf ("Number of dims: %d\n", ndims);
+printf ("MAX_GRIDDED_NDIMS: %d\n", MAX_GRIDDED_NDIMS);
+printf ("MAX_GRIDDED_NVARS: %d\n", MAX_GRIDDED_NVARS);
+
+    /* Get information about the variables in the file */
+    primary_index = -1;     /* initialize index to invalid value */
+    for (i = 0; i < nvars; i++)
+    {
+        if ((retval = nc_inq_var (ncid, i, in_varnames[i],
+             &in_data_type[i], &in_var_ndims[i], in_var_dimids[i],
+             &in_var_natts[i])))
+        {
+            nc_strerror (retval);
+            sprintf (errmsg, "Error inquiring about variable %d", i);
+            error_handler (true, FUNC_NAME, errmsg);
+            return (ERROR);
+        }
+printf ("Variable %d/%d: %s\n", i, nvars, in_varnames[i]);
+printf ("  ndims - %d\n", in_var_ndims[i]);
+if (in_var_ndims[i] == 2) printf ("  dims - %d %d\n", in_var_dimids[i][0], in_var_dimids[i][1]);
+printf ("  natts - %d\n", in_var_natts[i]);
+
+        /* If this variable is our primary variable
+           (algorithm_product_version_container) then stop looking */
+        if (!strcmp (in_varnames[i], "algorithm_product_version_container"))
+        {
+printf ("  **Primary variable found\n");
+            primary_index = i;
+            break;
+        }
+    }
+
+    /* Make sure the primary variable was found */
+    if (primary_index == -1)
+    {
+        sprintf (errmsg, "Primary variable algorithm_product_version_container "
+            "was not found in the netCDF dataset.");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Read the product_version attribute from the primary variable */
+    if ((retval = nc_get_att_text (ncid, primary_index, "product_version",
+         product_version)))
+    {
+        nc_strerror (retval);
+        sprintf (errmsg, "Not able to obtain the product_version attribute "
+            "value from the primary variable "
+            "algorithm_product_version_container.");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Successful conversion */
+    return (SUCCESS);
+}
+
+
+/******************************************************************************
+MODULE:  read_geospatial_lat_lon
+
+PURPOSE: Reads the geospatial lat/long bounding coordinates from the
+geospatial_lat_lon_extent container.
+
+RETURN VALUE:
+Type = int
+Value           Description
+-----           -----------
+ERROR           Error reading the bounding coords from the netCDF file
+SUCCESS         Successfully obtained the bounding coords from the netCDF file
+
+NOTES:
+******************************************************************************/
+int read_geospatial_lat_lon
+(
+    int ncid,                 /* I: netCDF file ID */
+    double *bound_coords      /* O: bounding coordinates */
+)
+{
+    char FUNC_NAME[] = "read_geospatial_lat_lon";  /* function name */
+    char errmsg[STR_SIZE];   /* error message */
+    int i;                   /* looping variable */
+    int retval;              /* return value */
+    int ndims;               /* number of input dimensions in netCDF file */
+    int nvars;               /* number of input variables in netCDF file */
+    int ngatts;              /* number of global attributes in netCDF file */
+    int unlimdimid;          /* ID of the unlimited dimension */
+    int primary_index;       /* index of the requested primary variable */
+    char in_varnames[MAX_GRIDDED_NVARS][NC_MAX_NAME+1]; /* var names as read */
+    int in_var_ndims[MAX_GRIDDED_NVARS];  /* num dims for each var as read */
+    int in_var_dimids[MAX_GRIDDED_NVARS][MAX_GRIDDED_NDIMS];
+                             /* array for the dimension IDs as read */
+    int in_var_natts[MAX_GRIDDED_NVARS];  /* number of var attributes as read */
+    nc_type in_data_type[MAX_GRIDDED_NVARS];
+                             /* data type for each variable as read */
+
+    /* Determine how many netCDF variables, dimensions, and global attributes
+       are in the file; also the dimension id of the unlimited dimension, if
+       there is one. */
+    if ((retval = nc_inq (ncid, &ndims, &nvars, &ngatts, &unlimdimid)))
+    {
+        nc_strerror (retval);
+        sprintf (errmsg, "Error inquiring about the variables, dimensions, "
+            "global attributes, etc. for the netCDF file.");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+printf ("Number of variables: %d\n", nvars);
+printf ("Number of dims: %d\n", ndims);
+
+    /* Get information about the variables in the file */
+    primary_index = -1;     /* initialize index to invalid value */
+    for (i = 0; i < nvars; i++)
+    {
+        if ((retval = nc_inq_var (ncid, i, in_varnames[i],
+             &in_data_type[i], &in_var_ndims[i], in_var_dimids[i],
+             &in_var_natts[i])))
+        {
+            nc_strerror (retval);
+            sprintf (errmsg, "Error inquiring about variable %d", i);
+            error_handler (true, FUNC_NAME, errmsg);
+            return (ERROR);
+        }
+printf ("Variable %d: %s\n", i, in_varnames[i]);
+printf ("  ndims - %d\n", in_var_ndims[i]);
+if (in_var_ndims[i] == 2) printf ("  dims - %d %d\n", in_var_dimids[i][0], in_var_dimids[i][1]);
+printf ("  natts - %d\n", in_var_natts[i]);
+
+        /* If this variable is our primary variable (geospatial_lat_lon_extent)
+           then stop looking */
+        if (!strcmp (in_varnames[i], "geospatial_lat_lon_extent"))
+        {
+printf ("  **Primary variable found\n");
+            primary_index = i;
+            break;
+        }
+    }
+
+    /* Make sure the primary variable was found */
+    if (primary_index == -1)
+    {
+        sprintf (errmsg, "Primary variable geosptial_lat_lon_extent was not "
+            "found in the netCDF dataset.");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Read the geospatial_westbound_longitude, geospatial_northbound_latitude,
+       geospatial_eastbound_longitude, and geospatial_southbound_latitude
+       attributes from the primary variable */
+    /* Westbound extent */
+    if ((retval = nc_get_att_double (ncid, primary_index,
+         "geospatial_westbound_longitude", &bound_coords[ESPA_WEST])))
+    {
+        nc_strerror (retval);
+        sprintf (errmsg, "Not able to obtain the "
+            "geospatial_westbound_longitude attribute value from the "
+            "primary variable geospatial_lat_lon_extent.");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Eastbound extent */
+    if ((retval = nc_get_att_double (ncid, primary_index,
+         "geospatial_eastbound_longitude", &bound_coords[ESPA_EAST])))
+    {
+        nc_strerror (retval);
+        sprintf (errmsg, "Not able to obtain the "
+            "geospatial_eastbound_longitude attribute value from the "
+            "primary variable geospatial_lat_lon_extent.");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Northbound extent */
+    if ((retval = nc_get_att_double (ncid, primary_index,
+         "geospatial_northbound_latitude", &bound_coords[ESPA_NORTH])))
+    {
+        nc_strerror (retval);
+        sprintf (errmsg, "Not able to obtain the "
+            "geospatial_northbound_latitude attribute value from the "
+            "primary variable geospatial_lat_lon_extent.");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Southbound extent */
+    if ((retval = nc_get_att_double (ncid, primary_index,
+         "geospatial_southbound_latitude", &bound_coords[ESPA_SOUTH])))
+    {
+        nc_strerror (retval);
+        sprintf (errmsg, "Not able to obtain the "
+            "geospatial_southbound_latitude attribute value from the "
+            "primary variable geospatial_lat_lon_extent.");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Successful conversion */
+    return (SUCCESS);
+}
+
+
+/******************************************************************************
+MODULE:  read_projection_info
+
+PURPOSE: Reads the projection information from the goes_imager_projection
+variable.
+
+RETURN VALUE:
+Type = int
+Value           Description
+-----           -----------
+ERROR           Error reading the projection info from the netCDF file
+SUCCESS         Successfully obtained the projection info from the netCDF file
+
+NOTES:
+******************************************************************************/
+int read_projection_info
+(
+    int ncid,                    /* I: netCDF file ID */
+    Espa_proj_meta_t *proj_info  /* O: projection information */
+)
+{
+    char FUNC_NAME[] = "read_projection_info";  /* function name */
+    char errmsg[STR_SIZE];   /* error message */
+    int i;                   /* looping variable */
+    int retval;              /* return value */
+    int ndims;               /* number of input dimensions in netCDF file */
+    int nvars;               /* number of input variables in netCDF file */
+    int ngatts;              /* number of global attributes in netCDF file */
+    int unlimdimid;          /* ID of the unlimited dimension */
+    int primary_index;       /* index of the requested primary variable */
+    char tmpstr[NC_MAX_NAME+1];  /* string value for projection */
+    char in_varnames[MAX_GRIDDED_NVARS][NC_MAX_NAME+1]; /* var names as read */
+    int in_var_ndims[MAX_GRIDDED_NVARS];  /* num dims for each var as read */
+    int in_var_dimids[MAX_GRIDDED_NVARS][MAX_GRIDDED_NDIMS];
+                             /* array for the dimension IDs as read */
+    int in_var_natts[MAX_GRIDDED_NVARS];  /* number of var attributes as read */
+    nc_type in_data_type[MAX_GRIDDED_NVARS];
+                             /* data type for each variable as read */
+
+    /* Determine how many netCDF variables, dimensions, and global attributes
+       are in the file; also the dimension id of the unlimited dimension, if
+       there is one. */
+    if ((retval = nc_inq (ncid, &ndims, &nvars, &ngatts, &unlimdimid)))
+    {
+        nc_strerror (retval);
+        sprintf (errmsg, "Error inquiring about the variables, dimensions, "
+            "global attributes, etc. for the netCDF file.");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+printf ("Number of variables: %d\n", nvars);
+printf ("Number of dims: %d\n", ndims);
+
+    /* Get information about the variables in the file */
+    primary_index = -1;     /* initialize index to invalid value */
+    for (i = 0; i < nvars; i++)
+    {
+        if ((retval = nc_inq_var (ncid, i, in_varnames[i],
+             &in_data_type[i], &in_var_ndims[i], in_var_dimids[i],
+             &in_var_natts[i])))
+        {
+            nc_strerror (retval);
+            sprintf (errmsg, "Error inquiring about variable %d", i);
+            error_handler (true, FUNC_NAME, errmsg);
+            return (ERROR);
+        }
+printf ("Variable %d: %s\n", i, in_varnames[i]);
+printf ("  ndims - %d\n", in_var_ndims[i]);
+if (in_var_ndims[i] == 2) printf ("  dims - %d %d\n", in_var_dimids[i][0], in_var_dimids[i][1]);
+printf ("  natts - %d\n", in_var_natts[i]);
+
+        /* If this variable is our primary variable (goes_imager_projection)
+           then stop looking */
+        if (!strcmp (in_varnames[i], "goes_imager_projection"))
+        {
+printf ("  **Primary variable found\n");
+            primary_index = i;
+            break;
+        }
+    }
+
+    /* Make sure the primary variable was found */
+    if (primary_index == -1)
+    {
+        sprintf (errmsg, "Primary variable goes_imager_projection was not "
+            "found in the netCDF dataset.");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Read the grid_mapping_name, semi_major_axis, semi_minor_axis,
+       longitude_of_projection_origin, and perspective_point_height attributes
+       from the primary variable */
+    /* Grid mapping name */
+    if ((retval = nc_get_att_text (ncid, primary_index, "grid_mapping_name",
+         tmpstr)))
+    {
+        nc_strerror (retval);
+        sprintf (errmsg, "Not able to obtain the grid_mapping_name "
+            "attribute value from the primary variable "
+            "goes_imager_projection.");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    if (strcmp (tmpstr, "geostationary"))
+    {
+        sprintf (errmsg, "Invalid projection type: %s.  GOES-R ABI data is "
+            "expected to be in the geostationary projection.", tmpstr);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+    proj_info->proj_type = ESPA_GEOSTATIONARY;
+
+    /* Semi-major axis */
+    if ((retval = nc_get_att_double (ncid, primary_index, "semi_major_axis",
+         &proj_info->semi_major_axis)))
+    {
+        nc_strerror (retval);
+        sprintf (errmsg, "Not able to obtain the semi_major_axis attribute "
+            "value from the primary variable goes_imager_projection.");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Semi-minor axis */
+    if ((retval = nc_get_att_double (ncid, primary_index, "semi_minor_axis",
+         &proj_info->semi_minor_axis)))
+    {
+        nc_strerror (retval);
+        sprintf (errmsg, "Not able to obtain the semi_minor_axis attribute "
+            "value from the primary variable goes_imager_projection.");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Central meridian */
+    if ((retval = nc_get_att_double (ncid, primary_index,
+         "longitude_of_projection_origin", &proj_info->central_meridian)))
+    {
+        nc_strerror (retval);
+        sprintf (errmsg, "Not able to obtain the "
+            "longitude_of_projection_origin attribute value from the primary "
+            "variable goes_imager_projection.");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Satellite height */
+    if ((retval = nc_get_att_double (ncid, primary_index,
+         "perspective_point_height", &proj_info->satellite_height)))
+    {
+        nc_strerror (retval);
+        sprintf (errmsg, "Not able to obtain the perspective_point_height "
+            "attribute value from the primary variable "
+            "goes_imager_projection.");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Check the semi-major and semi-minor to make sure they match up with
+       what is expected for GRS80 */
+    if (GCTP_GRS80_SEMI_MAJOR - proj_info->semi_major_axis > 0.0001)
+    {
+        sprintf (errmsg, "Semi-major axis is unexpected value of %f. Value "
+            "was expected to be %f, which is the GRS80 semi-major axis.",
+            GCTP_GRS80_SEMI_MAJOR, proj_info->semi_major_axis);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    if (GCTP_GRS80_SEMI_MINOR - proj_info->semi_minor_axis > 0.0001)
+    {
+        sprintf (errmsg, "Semi-minor axis is unexpected value of %f. Value "
+            "was expected to be %f, which is the GRS80 semi-minor axis.",
+            GCTP_GRS80_SEMI_MINOR, proj_info->semi_minor_axis);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Store the remaining projection info.  The data isn't in any particular
+       datum.  And the false easting and northing are 0.0. */
+    proj_info->datum_type = ESPA_NODATUM;
+    proj_info->false_easting = 0.0;
+    proj_info->false_northing = 0.0;
+
+    /* Successful conversion */
+    return (SUCCESS);
+}
+
+
+/******************************************************************************
+MODULE:  read_image_bounds
+
+PURPOSE: Reads the x/y image space bounding coordinates from the
+[x|y_image_bounds] variable
+
+RETURN VALUE:
+Type = int
+Value           Description
+-----           -----------
+ERROR           Error reading the image bounds from the netCDF file
+SUCCESS         Successfully obtained the image bounds from the netCDF file
+
+NOTES:
+******************************************************************************/
+int read_image_bounds
+(
+    int ncid,                 /* I: netCDF file ID */
+    char *varname,            /* I: variable name to be read from netCDF file */
+    float *image_bounds       /* O: image bounds from specified variable */
+)
+{
+    char FUNC_NAME[] = "read_image_bounds";  /* function name */
+    char errmsg[STR_SIZE];   /* error message */
+    int i;                   /* looping variable */
+    int retval;              /* return value */
+    int ndims;               /* number of input dimensions in netCDF file */
+    int nvars;               /* number of input variables in netCDF file */
+    int ngatts;              /* number of global attributes in netCDF file */
+    int unlimdimid;          /* ID of the unlimited dimension */
+    int primary_index;       /* index of the requested primary variable */
+    char in_varnames[MAX_GRIDDED_NVARS][NC_MAX_NAME+1]; /* var names as read */
+    int in_var_ndims[MAX_GRIDDED_NVARS];  /* num dims for each var as read */
+    int in_var_dimids[MAX_GRIDDED_NVARS][MAX_GRIDDED_NDIMS];
+                             /* array for the dimension IDs as read */
+    int in_var_natts[MAX_GRIDDED_NVARS];  /* number of var attributes as read */
+    size_t start[1];         /* starting location for reading data */
+    size_t count[1];         /* how many values within each dimension will be
+                                read */
+    nc_type in_data_type[MAX_GRIDDED_NVARS];
+                             /* data type for each variable as read */
+
+    /* Determine how many netCDF variables, dimensions, and global attributes
+       are in the file; also the dimension id of the unlimited dimension, if
+       there is one. */
+    if ((retval = nc_inq (ncid, &ndims, &nvars, &ngatts, &unlimdimid)))
+    {
+        nc_strerror (retval);
+        sprintf (errmsg, "Error inquiring about the variables, dimensions, "
+            "global attributes, etc. for the netCDF file.");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+printf ("Number of variables: %d\n", nvars);
+printf ("Number of dims: %d\n", ndims);
+
+    /* Get information about the variables in the file */
+    primary_index = -1;     /* initialize index to invalid value */
+    for (i = 0; i < nvars; i++)
+    {
+        if ((retval = nc_inq_var (ncid, i, in_varnames[i],
+             &in_data_type[i], &in_var_ndims[i], in_var_dimids[i],
+             &in_var_natts[i])))
+        {
+            nc_strerror (retval);
+            sprintf (errmsg, "Error inquiring about variable %d", i);
+            error_handler (true, FUNC_NAME, errmsg);
+            return (ERROR);
+        }
+printf ("Variable %d: %s\n", i, in_varnames[i]);
+printf ("  ndims - %d\n", in_var_ndims[i]);
+if (in_var_ndims[i] == 2) printf ("  dims - %d %d\n", in_var_dimids[i][0], in_var_dimids[i][1]);
+printf ("  natts - %d\n", in_var_natts[i]);
+
+        /* If this variable is our primary variable, then stop looking */
+        if (!strcmp (in_varnames[i], varname))
+        {
+printf ("  **Primary variable found\n");
+            primary_index = i;
+            break;
+        }
+    }
+
+    /* Make sure the primary variable was found */
+    if (primary_index == -1)
+    {
+        sprintf (errmsg, "Primary variable %s was not found in the netCDF "
+            "dataset.", varname);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Read the array of two floating point values for the min/max bounds*/
+    /* Initialize start variable to start reading at 0 index */
+    start[0] = 0;    /* x */
+
+    /* Read the entire variable */
+    count[0] = 2;    /* x */
+
+    /* Read the data */
+    if ((retval = nc_get_vara_float (ncid, primary_index, start, count,
+         image_bounds)))
+    {
+        nc_strerror (retval);
+        sprintf (errmsg, "Error reading image bounds from primary variable %s",
+            varname);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Successful conversion */
+    return (SUCCESS);
+}
+
+
+/******************************************************************************
+MODULE:  read_goes_netcdf
+
+PURPOSE: Read the metadata from the GOES-R netCDF file and populate the ESPA
+internal metadata structure
+
+RETURN VALUE:
+Type = int
+Value           Description
+-----           -----------
+ERROR           Error reading the GOES-R ABI file
+SUCCESS         Successfully populated the ESPA metadata structure
+
+NOTES:
+******************************************************************************/
+int read_goes_netcdf
+(
+    char *ncdf_filename,               /* I: netCDF filename */
+    int ncid,                          /* I: netCDF file ID */
+    Espa_ncdf_var_attr_t ncdf_attr[2], /* I: file attributes for the netCDF
+                                          primary variables
+                                          ([0]-CMI, [1]-DQF) */
+    char *xml_filename,                /* XML filename */
+    Espa_internal_meta_t *metadata     /* I/O: input metadata structure to be
+                                          populated from the GOES-R ABI file */
+)
+{
+    char FUNC_NAME[] = "read_goes_netcdf";  /* function name */
+    char errmsg[STR_SIZE];    /* error message */
+    char xml_basename[STR_SIZE]; /* filename without path and extension */
+    char product_version[STR_SIZE]; /* product version */
+    char production_date[STR_SIZE]; /* production date of the data */
+    char project[STR_SIZE];   /* project global attribute */
+    char scene_id[STR_SIZE];  /* scene_id global attribute */
+    char spatial_resolution[STR_SIZE]; /* spatial_resolution global attribute */
+    char bandname[STR_SIZE];  /* GOES band name for the current file */
+    char tmpstr[STR_SIZE];    /* temporary string for date/time info */
+    char goesstr[3];          /* string to hold the GOES instrument number */
+    char yearstr[5];          /* string to hold acquisition/production year */
+    char doystr[4];           /* string to hold acquisition/production DOY */
+    char timestr[8];          /* string to hold acquisition/production time */
+    char *cptr = NULL;        /* character pointer for strings */
+    int i;                    /* looping variable */
+    int retval;               /* return value */
+    int count;                /* number of chars copied in snprintf */
+    int acq_doy;              /* acquisition DOY */
+    int acq_year;             /* acquisition year */
+    int acq_month;            /* acquisition month */
+    int acq_day;              /* acquisition day */
+    int prod_doy;             /* production DOY */
+    int prod_year;            /* production year */
+    int prod_month;           /* production month */
+    int prod_day;             /* production day */
+    int prod_hour;            /* production hour */
+    int prod_min;             /* production minute */
+    int prod_sec;             /* production seconds */
+    int status;               /* return status */
+    float x_image_bounds[2];  /* west/east image coordinates for the x dim */
+    float y_image_bounds[2];  /* north/south image coordinates for the y dim */
+
+    Espa_global_meta_t *gmeta = &metadata->global;  /* pointer to the global
+                                                       metadata structure */
+    Espa_band_meta_t *bmeta;      /* pointer to the array of bands metadata */
+
+    /* Strip the extension off the XML file to get the xml_basename */
+    strcpy (xml_basename, xml_filename);
+    cptr = strrchr (xml_basename, '.');
+    if (cptr != NULL)
+    {
+        /* File extension found */
+        *cptr = '\0';
+    }
+    else
+    {
+        sprintf (errmsg, "Unexpected XML filename: %s. Filenames are expected "
+            "to have a file extension.", xml_filename);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Use the netCDF filename to determine the data_provider, satellite,
+       instrument, and product.
+       Example - OR_ABI-L2-CMIPC-M3C02_G16_s20171721702192_e20171721704565_c20171721705067.nc */
+    strcpy (gmeta->data_provider, "NOAA NESDIS");
+    strcpy (gmeta->instrument, "GOES-R Advanced Baseline Imager");
+
+    if (strncpy (goesstr, &ncdf_filename[23], 2) == NULL)
+    {
+        sprintf (errmsg, "Error pulling the GOES number from the netCDF "
+            "filename: %s", ncdf_filename);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+    goesstr[2] = '\0';
+    sprintf (gmeta->satellite, "GOES-%s", goesstr);
+
+    /* Use the netCDF filename to determine the acquisition date as yyyyddd.
+       We will use the start of acquisition, which is available with the '_s'
+       section of the filename.  '_e' is the ending time. */
+    if (strncpy (yearstr, &ncdf_filename[27], 4) == NULL)
+    {
+        sprintf (errmsg, "Error pulling the acquisition year from the netCDF "
+            "filename: %s", ncdf_filename);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+    yearstr[4] = '\0';
+    acq_year = atoi (yearstr);
+
+    if (strncpy (doystr, &ncdf_filename[31], 3) == NULL)
+    {
+        sprintf (errmsg, "Error pulling the acquisition DOY from the base "
+            "filename: %s", ncdf_filename);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+    doystr[3] = '\0';
+    acq_doy = atoi (doystr);
+
+    /* Year and DOY need to be converted to yyyy-mm-dd */
+    if (doy_to_month_day (acq_year, acq_doy, &acq_month, &acq_day) != SUCCESS)
+    {
+        sprintf (errmsg, "Error converting %d-%d to yyyy-mm-dd", acq_year,
+            acq_doy);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    count = snprintf (gmeta->acquisition_date, sizeof (gmeta->acquisition_date),
+        "%04d-%02d-%02d", acq_year, acq_month, acq_day);
+    if (count < 0 || count >= sizeof (gmeta->acquisition_date))
+    {
+        sprintf (errmsg, "Overflow of gmeta->acquisition_date string");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Use the netCDF filename to determine the production date/time, which
+       comes with the '_c' section of the filename. */
+    if (strncpy (yearstr, &ncdf_filename[59], 4) == NULL)
+    {
+        sprintf (errmsg, "Error pulling the production year from the netCDF "
+            "filename: %s", ncdf_filename);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+    yearstr[4] = '\0';
+    prod_year = atoi (yearstr);
+
+    if (strncpy (doystr, &ncdf_filename[63], 3) == NULL)
+    {
+        sprintf (errmsg, "Error pulling the production DOY from the base "
+            "filename: %s", ncdf_filename);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+    doystr[3] = '\0';
+    prod_doy = atoi (doystr);
+
+    if (strncpy (timestr, &ncdf_filename[66], 7) == NULL)
+    {
+        sprintf (errmsg, "Error pulling the production date/time from the "
+            "netCDF filename");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+    timestr[7] = '\0';
+
+    /* Year and DOY need to be converted to yyyy-mm-dd */
+    if (doy_to_month_day (prod_year, prod_doy, &prod_month, &prod_day) !=
+        SUCCESS)
+    {
+        sprintf (errmsg, "Error converting %d-%d to yyyy-mm-dd", prod_year,
+            prod_doy);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Production time string needs to be in hours, minutes, seconds.  The
+       seconds in the netCDF filename are three characters (xyz) representing
+       the floating point seconds with one decimal place (xy.z).  This needs
+       to be truncated to just two digits in the output production time
+       string.  NOTE: Rounding would be more accurate, but would also require
+       possibly changing the minutes, hours, and date if the time were to round
+       upward.  For simplicity, we will just truncate. */
+    strncpy (tmpstr, &timestr[0], 2);
+    prod_hour = atoi (tmpstr);
+
+    strncpy (tmpstr, &timestr[2], 2);
+    prod_min = atoi (tmpstr);
+
+    strncpy (tmpstr, &timestr[4], 2);
+    prod_sec = atoi (tmpstr);
+
+    /* Store the production date/time as YYYY-MM-DDThh:mm:ssZ */
+    count = snprintf (production_date, sizeof (production_date),
+        "%04d-%02d-%02dT%02d:%02d:%02dZ", prod_year, prod_month, prod_day,
+        prod_hour, prod_min, prod_sec);
+    if (count < 0 || count >= sizeof (production_date))
+    {
+        sprintf (errmsg, "Overflow of production_date string");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Use the netCDF filename to determine which band this file is */
+    if (!strncmp (&ncdf_filename[18], "C02", 3))
+        strcpy (bandname, "b2");
+    else if (!strncmp (&ncdf_filename[18], "C03", 3))
+        strcpy (bandname, "b3");
+    else
+    {
+        sprintf (errmsg, "Unexpected GOES-R ABI filename.  It is expected that "
+            "this is either channel 2 (red) or channel 3 (NIR) data.  %s",
+            ncdf_filename);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Read the bounding coordinates from the geospatial_lat_lon_extent */
+    status = read_geospatial_lat_lon (ncid, gmeta->bounding_coords);
+    if (status != SUCCESS)
+    {
+        sprintf (errmsg, "Reading the bounding coordinates.");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Read the projection information, which will be used for the band data */
+    status = read_projection_info (ncid, &gmeta->proj_info);
+    if (status != SUCCESS)
+    {
+        sprintf (errmsg, "Reading the projection information");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Read x/y image bounds for east/west, north/south projection extents.
+       These represent the outer extents of the image and will need to be
+       adjusted to represent the center of the pixel. */
+    status = read_image_bounds (ncid, "x_image_bounds", x_image_bounds);
+    if (status != SUCCESS)
+    {
+        sprintf (errmsg, "Reading the x_image_bounds east/west coordinates.");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    status = read_image_bounds (ncid, "y_image_bounds", y_image_bounds);
+    if (status != SUCCESS)
+    {
+        sprintf (errmsg, "Reading the y_image_bounds north/south coordinates.");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Allocate bands for the XML structure */
+    metadata->nbands = NGOES_BANDS;
+    if (allocate_band_metadata (metadata, metadata->nbands) != SUCCESS)
+    {   /* Error messages already printed */
+        return (ERROR);
+    }
+    bmeta = metadata->band;
+
+    /* Read the product version from the algorithm_product_version_container */
+    status = read_product_version (ncid, product_version);
+    if (status != SUCCESS)
+    {
+        sprintf (errmsg, "Reading the product version.");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Read the project global attribute */
+    if ((retval = nc_get_att_text (ncid, NC_GLOBAL, "project", project)))
+    {
+        nc_strerror (retval);
+        sprintf (errmsg, "Not able to obtain the project global attribute.");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Read the scene_id global attribute */
+    if ((retval = nc_get_att_text (ncid, NC_GLOBAL, "scene_id", scene_id)))
+    {
+        nc_strerror (retval);
+        sprintf (errmsg, "Not able to obtain the scene_id global attribute.");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Switch 'Full Disk' to uppercase.  Check for Full Disk or CONUS.  Those
+       are the only two supported scene types. */
+    if (!strcmp (scene_id, "Full Disk"))
+        strcpy (scene_id, "goes_full_disk");
+    else if (!strcmp (scene_id, "CONUS"))
+        strcpy (scene_id, "goes_conus");
+    else
+    {
+        sprintf (errmsg, "Unexpected scene_id type %s.  Only Full Disk and "
+            "CONUS are expected.", scene_id);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Read the spatial_resolution global attribute */
+    if ((retval = nc_get_att_text (ncid, NC_GLOBAL, "spatial_resolution",
+         spatial_resolution)))
+    {
+        nc_strerror (retval);
+        sprintf (errmsg, "Not able to obtain the spatial_resolution global "
+            "attribute.");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Adjust the UL and LR outer extent coordinates by the pixel size to
+       represent the center of the pixel.  Use the pixel size from the CMI
+       variable. */
+    x_image_bounds[0] += ncdf_attr[GOES_CMI].pixel_size[0] * 0.5;
+    x_image_bounds[1] -= ncdf_attr[GOES_CMI].pixel_size[0] * 0.5;
+    y_image_bounds[0] -= ncdf_attr[GOES_CMI].pixel_size[1] * 0.5;
+    y_image_bounds[1] += ncdf_attr[GOES_CMI].pixel_size[1] * 0.5;
+
+    /* Projection information is in radians */
+    strcpy (gmeta->proj_info.units, "radians");
+    gmeta->proj_info.ul_corner[0] = x_image_bounds[0];
+    gmeta->proj_info.ul_corner[1] = y_image_bounds[0];
+    gmeta->proj_info.lr_corner[0] = x_image_bounds[1];
+    gmeta->proj_info.lr_corner[1] = y_image_bounds[1];
+    strcpy (gmeta->proj_info.grid_origin, "CENTER");
+    gmeta->orientation_angle = 0.0;
+
+    /* Loop through the bands (CMI, DQF), fill in the information from above */
+    for (i = 0; i < metadata->nbands; i++)
+    {
+        /* Fill in the band level information already obtained. Use the global
+           scene_id attribute for the product type. Use GOESABI for the short
+           name.  Use 'image' for the CMI category and 'qa' for the DQF
+           category. */
+        strcpy (bmeta[i].product, scene_id);
+        strcpy (bmeta[i].short_name, "GOESABI");
+        bmeta[i].nsamps = ncdf_attr[i].nsamps;
+        bmeta[i].nlines = ncdf_attr[i].nlines;
+
+        /* Setup the band name. If this is the DQF band then append _dqf to the
+           band name.  Use 'image' for the CMI category and 'qa' for the DQF
+           category.  The DQF band needs to contain the DQF extension. */
+        if (i == GOES_DQF)
+        {
+            strcpy (bmeta[i].category, "qa");
+
+            count = snprintf (bmeta[i].name, sizeof (bmeta[i].name), "%s_dqf",
+                bandname);
+            if (count < 0 || count >= sizeof (bmeta[i].name))
+            {
+                sprintf (errmsg, "Overflow of bmeta[].name string");
+                error_handler (true, FUNC_NAME, errmsg);
+                return (ERROR);
+            }
+
+            count = snprintf (bmeta[i].long_name,
+                sizeof (bmeta[i].long_name), "band %c data quality flag",
+                bandname[1]);
+            if (count < 0 || count >= sizeof (bmeta[i].long_name))
+            {
+                sprintf (errmsg, "Overflow of bmeta[].long_name string");
+                error_handler (true, FUNC_NAME, errmsg);
+                return (ERROR);
+            }
+
+            count = snprintf (bmeta[i].data_units, sizeof (bmeta[i].data_units),
+                "quality/feature classification");
+            if (count < 0 || count >= sizeof (bmeta[i].data_units))
+            {
+                sprintf (errmsg, "Overflow of bmeta[].data_units string");
+                error_handler (true, FUNC_NAME, errmsg);
+                return (ERROR);
+            }
+
+            /* Set up the 4 classes for the data quality flag */
+            bmeta[i].nclass = 4;
+            if (allocate_class_metadata (&bmeta[i], 4) != SUCCESS)
+            {
+                sprintf (errmsg, "Cannot allocate memory for the DQF classes");
+                error_handler (true, FUNC_NAME, errmsg);
+                return (ERROR);
+            }
+            bmeta[i].class_values[0].class = 0;
+            bmeta[i].class_values[1].class = 1;
+            bmeta[i].class_values[2].class = 2;
+            bmeta[i].class_values[3].class = 3;
+            strcpy (bmeta[i].class_values[0].description, "good pixel quality");
+            strcpy (bmeta[i].class_values[1].description,
+                "conditionally usable");
+            strcpy (bmeta[i].class_values[2].description, "out of range");
+            strcpy (bmeta[i].class_values[3].description, "no value");
+        }
+        else
+        {
+            strcpy (bmeta[i].category, "image");
+            count = snprintf (bmeta[i].name, sizeof (bmeta[i].name), "%s",
+                bandname);
+            if (count < 0 || count >= sizeof (bmeta[i].name))
+            {
+                sprintf (errmsg, "Overflow of bmeta[].name string");
+                error_handler (true, FUNC_NAME, errmsg);
+                return (ERROR);
+            }
+
+            count = snprintf (bmeta[i].long_name,
+                sizeof (bmeta[i].long_name), "band %c radiance", bandname[1]);
+            if (count < 0 || count >= sizeof (bmeta[i].long_name))
+            {
+                sprintf (errmsg, "Overflow of bmeta[].long_name string");
+                error_handler (true, FUNC_NAME, errmsg);
+                return (ERROR);
+            }
+
+            count = snprintf (bmeta[i].data_units, sizeof (bmeta[i].data_units),
+                "radiance");
+            if (count < 0 || count >= sizeof (bmeta[i].data_units))
+            {
+                sprintf (errmsg, "Overflow of bmeta[].data_units string");
+                error_handler (true, FUNC_NAME, errmsg);
+                return (ERROR);
+            }
+        }
+
+        /* Set up the filename */
+        count = snprintf (bmeta[i].file_name, sizeof (bmeta[i].file_name),
+            "%s_%s.img", xml_basename, bmeta[i].name);
+        if (count < 0 || count >= sizeof (bmeta[i].file_name))
+        {
+            sprintf (errmsg, "Overflow of bmeta[].file_name string");
+            error_handler (true, FUNC_NAME, errmsg);
+            return (ERROR);
+        }
+
+        /* Convert the data type to the ESPA data type */
+        switch (ncdf_attr[i].native_data_type)
+        {
+            case NC_BYTE:
+                bmeta[i].data_type = ESPA_INT8; break;
+            case NC_UBYTE:
+                bmeta[i].data_type = ESPA_UINT8; break;
+            case NC_SHORT:
+                bmeta[i].data_type = ESPA_INT16; break;
+            case NC_USHORT:
+                bmeta[i].data_type = ESPA_UINT16; break;
+            case NC_INT:
+                bmeta[i].data_type = ESPA_INT32; break;
+            case NC_UINT:
+                bmeta[i].data_type = ESPA_UINT32; break;
+            case NC_FLOAT:
+                bmeta[i].data_type = ESPA_FLOAT32; break;
+            default:
+                sprintf (errmsg, "Unsupported GOES-R ABI netCDF data type");
+                error_handler (true, FUNC_NAME, errmsg);
+                return (ERROR);
+        }
+
+        /* Compute the pixel size */
+        bmeta[i].pixel_size[0] = ncdf_attr[GOES_CMI].pixel_size[0];
+        bmeta[i].pixel_size[1] = ncdf_attr[GOES_CMI].pixel_size[1];
+        strcpy (bmeta[i].pixel_units, "radians");
+
+        /* Assign the scale, offset, min/max, and fill values */
+        if (ncdf_attr[i].fill_defined)
+            bmeta[i].fill_value = ncdf_attr[i].fill_value;
+        if (ncdf_attr[i].scale_defined)
+            bmeta[i].scale_factor = ncdf_attr[i].scale_fact;
+        if (ncdf_attr[i].offset_defined)
+            bmeta[i].add_offset = ncdf_attr[i].add_offset;
+        if (ncdf_attr[i].valid_range_defined)
+        {
+            bmeta[i].valid_range[0] = ncdf_attr[i].valid_range[0];
+            bmeta[i].valid_range[1] = ncdf_attr[i].valid_range[1];
+        }
+
+        /* Set the resample method to none */
+        bmeta[i].resample_method = ESPA_NONE;
+
+        /* Add production date/time and product version from the netCDF file */
+        count = snprintf (bmeta[i].production_date,
+            sizeof (bmeta[i].production_date), "%s", production_date);
+        if (count < 0 || count >= sizeof (bmeta[i].production_date))
+        {
+            sprintf (errmsg, "Overflow of bmeta[].production_date string");
+            error_handler (true, FUNC_NAME, errmsg);
+            return (ERROR);
+        }
+
+        count = snprintf (bmeta[i].app_version, sizeof (bmeta[i].app_version),
+            "Product version %s", product_version);
+        if (count < 0 || count >= sizeof (bmeta[i].app_version))
+        {
+            sprintf (errmsg, "Overflow of bmeta[].app_version string");
+            error_handler (true, FUNC_NAME, errmsg);
+            return (ERROR);
+        }
+    }  /* end for i (loop through the grids) */
+
+    /* Compute the lat/long for the UL and LR projection x/y corners */
+    goes_xy_to_latlon (gmeta->proj_info.ul_corner[0],
+        gmeta->proj_info.ul_corner[1], &gmeta->proj_info,
+        &gmeta->ul_corner[0], &gmeta->ul_corner[1]);
+
+    goes_xy_to_latlon (gmeta->proj_info.lr_corner[0],
+        gmeta->proj_info.lr_corner[1], &gmeta->proj_info,
+        &gmeta->lr_corner[0], &gmeta->lr_corner[1]);
+
+    /* Successful read */
+    return (SUCCESS);
+}
+
+
+/******************************************************************************
+MODULE:  convert_netcdf_to_img
+
+PURPOSE: Convert the GOES-R ABI netCDF band to an ESPA raw binary (.img) file
+and write the associated ENVI header for this band.
+
+RETURN VALUE:
+Type = int
+Value           Description
+-----           -----------
+ERROR           Error converting the GOES-R ABI band
+SUCCESS         Successfully converted GOES-R ABI band to raw binary
+
+NOTES:
+1. It is assumed the netCDF file is already opened.
+******************************************************************************/
+int convert_netcdf_to_img
+(
+    int ncid,            /* I: netCDF file ID */
+    int primary_index,   /* I: index of the primary variable */
+    nc_type native_data_type, /* I: native data type of the primary variable */
+    int xml_band,        /* I: which band in the XML file is being processed */
+    Espa_internal_meta_t *xml_metadata   /* I: metadata structure for netCDF
+                                               file */
+)
+{
+    char FUNC_NAME[] = "convert_netcdf_to_img";  /* function name */
+    char errmsg[STR_SIZE];    /* error message */
+    char *cptr = NULL;        /* pointer to the file extension */
+    char *img_file = NULL;    /* name of the output raw binary file */
+    char envi_file[STR_SIZE]; /* name of the output ENVI header file */
+    int nbytes;               /* number of bytes in the data type */
+    int count;                /* number of chars copied in snprintf */
+    void *file_buf = NULL;    /* pointer to input file buffer */
+    void *reprojected_file_buf = NULL;  /* pointer to reprojected file buffer */
+    FILE *fp_rb = NULL;       /* file pointer for the raw binary file */
+    Envi_header_t envi_hdr;   /* output ENVI header information */
+    Espa_band_meta_t *bmeta = NULL;  /* pointer to band metadata */
+    Espa_global_meta_t *gmeta = &xml_metadata->global;  /* global metadata */
+
+    /* Set up the band metadata pointer */
+    bmeta = &xml_metadata->band[xml_band];
+
+    /* Open the raw binary file for writing */
+    img_file = bmeta->file_name;
+    fp_rb = open_raw_binary (img_file, "wb");
+    if (fp_rb == NULL)
+    {
+        sprintf (errmsg, "Opening the output raw binary file: %s", img_file);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Read the gridded data from the primary index in the netCDF file.
+       Memory is allocated for the data buffer before the dataset is read. */
+    if (ncdf_read_gridded_var (ncid, primary_index, bmeta->nlines,
+        bmeta->nsamps, native_data_type, &file_buf) != SUCCESS)
+    {
+        sprintf (errmsg, "Reading the gridded netCDF data");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Reproject the image from Geostationary to Geographic lat/long */
+    if (reproject_goes (gmeta, bmeta, file_buf, &reprojected_file_buf) !=
+        SUCCESS)
+    {
+        sprintf (errmsg, "Reprojecting the gridded netCDF data");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Determine the number of bytes per pixel for the output product */
+    if (bmeta->data_type == ESPA_INT8)
+        nbytes = sizeof (int8_t);
+    else if (bmeta->data_type == ESPA_INT16)
+        nbytes = sizeof (int16_t);
+    else
+    {
+        sprintf (errmsg, "Unsupported GOES-R ABI data type %d.",
+            bmeta->data_type);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Write reprojected image to the raw binary file */
+    if (write_raw_binary (fp_rb, bmeta->nlines, bmeta->nsamps, nbytes,
+        reprojected_file_buf) != SUCCESS)
+    {
+        sprintf (errmsg, "Writing image to the raw binary file: %s", img_file);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Close the raw binary file */
+    close_raw_binary (fp_rb);
+
+    /* Free the memory */
+    free (file_buf);
+
+/* TODO GAIL -- gmeta needs to be updated to the new projection before writing */
+    /* Create the ENVI header file this band */
+    if (create_envi_struct (bmeta, gmeta, &envi_hdr) != SUCCESS)
+    {
+        sprintf (errmsg, "Creating the ENVI header structure for this file: "
+            "%s", img_file);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Write the ENVI header */
+    count = snprintf (envi_file, sizeof (envi_file), "%s", img_file);
+    if (count < 0 || count >= sizeof (envi_file))
+    {
+        sprintf (errmsg, "Overflow of envi_file string");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+    cptr = strrchr (envi_file, '.');
+    strcpy (cptr, ".hdr");
+
+    if (write_envi_hdr (envi_file, &envi_hdr) != SUCCESS)
+    {
+        sprintf (errmsg, "Writing the ENVI header file: %s.", envi_file);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Successful conversion */
+    return (SUCCESS);
+}
+
+
+/******************************************************************************
+MODULE:  convert_goes_to_espa
+
+PURPOSE: Converts the input GOES-R ABI netCDF file to the ESPA internal raw
+binary file format (and associated XML file).
+
+RETURN VALUE:
+Type = int
+Value           Description
+-----           -----------
+ERROR           Error converting the GOES-R ABI file
+SUCCESS         Successfully converted GOES-R ABI to ESPA format
+
+NOTES:
+  1. The ESPA raw binary band files will be generated from the ESPA XML
+     filename.
+******************************************************************************/
+int convert_goes_to_espa
+(
+    char *goes_netcdf_file, /* I: input GOES-R ABI netCDF filename */
+    char *espa_xml_file,    /* I: output ESPA XML metadata filename; if
+                                  append_bands, then the XML metadata file
+                                  will be appended to; otherwise the XML
+                                  metadata file will be created */
+    bool append_bands,      /* I: are the bands in this GOES-R file being
+                                  appended?  If not, then the XML file will
+                                  be created from scratch. */
+    bool del_src            /* I: should the source .nc files be removed after
+                                  conversion? */
+)
+{
+    char FUNC_NAME[] = "convert_goes_to_espa";  /* function name */
+    char errmsg[STR_SIZE];   /* error message */
+    int ncid;                /* netCDF file ID */
+    int xml_band;            /* band number for the current file in the XML */
+    Espa_internal_meta_t xml_metadata;  /* XML metadata structure to be
+                                populated by reading the MTL metadata file */
+    Espa_ncdf_var_attr_t ncdf_attr[2]; /* file attributes for the netCDF primary
+                                          variable ([0] - CMI, [1] - DQF) */
+
+    /* Initialize the metadata structure */
+    init_metadata_struct (&xml_metadata);
+
+    /* Open the GOES-R ABI netCDF file for reading */
+    if (open_netcdf (goes_netcdf_file, &ncid) != SUCCESS)
+    {
+        sprintf (errmsg, "Opening the GOES-R ABI netCDF file: %s",
+            goes_netcdf_file);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Read the attributes for CMI */
+    if (ncdf_read_gridded_attr (ncid, "CMI", &ncdf_attr[GOES_CMI]) != SUCCESS)
+    {
+        sprintf (errmsg, "Reading attributes for CMI variable in the GOES-R "
+            "ABI netCDF file: %s", goes_netcdf_file);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Read the attributes for DQF */
+    if (ncdf_read_gridded_attr (ncid, "DQF", &ncdf_attr[GOES_DQF]) != SUCCESS)
+    {
+        sprintf (errmsg, "Reading attributes for DQF variable in the GOES-R "
+            "ABI netCDF file: %s", goes_netcdf_file);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Read the attributes from the netCDF file into the internal ESPA metadata
+       structure */
+    if (read_goes_netcdf (goes_netcdf_file, ncid, ncdf_attr, espa_xml_file,
+        &xml_metadata) != SUCCESS)
+    {
+        sprintf (errmsg, "Reading the GOES-R ABI netCDF file: %s",
+            goes_netcdf_file);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Convert each of the GOES-R ABI netCDF bands to raw binary.  If we are
+       starting with the first GOES-R Channel (ch02/red) file, then the CMI
+       and DQF will be the first two bands in the XML file.  If we are
+       processing/appending the ch03/nir file, then the CMI and DQF will be
+       the third and fourth bands in the XML file. */
+    if (append_bands)
+        xml_band = 2;
+    else
+        xml_band = 0;
+
+    /* CMI */
+    if (convert_netcdf_to_img (ncid, ncdf_attr[GOES_CMI].primary_index,
+        ncdf_attr[GOES_CMI].native_data_type, xml_band, &xml_metadata) !=
+        SUCCESS)
+    {
+        sprintf (errmsg, "Converting %s CMI to raw binary", goes_netcdf_file);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* DQF */
+    if (convert_netcdf_to_img (ncid, ncdf_attr[GOES_DQF].primary_index,
+        ncdf_attr[GOES_DQF].native_data_type, xml_band+1, &xml_metadata) !=
+        SUCCESS)
+    {
+        sprintf (errmsg, "Converting %s DQF to raw binary", goes_netcdf_file);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Reset the global metadata since the data has been reprojected to
+       Geographic */
+/* TODO GAIL */
+
+    /* Write the metadata from our internal metadata structure to the output
+       XML filename */
+    if (write_metadata (&xml_metadata, espa_xml_file) != SUCCESS)
+    {  /* Error messages already written */
+        return (ERROR);
+    }
+
+    /* Validate the output metadata file */
+    if (validate_xml_file (espa_xml_file) != SUCCESS)
+    {  /* Error messages already written */
+        return (ERROR);
+    }
+
+    /* Close the GOES-R ABI netCDF file */
+    if (close_netcdf (ncid) != SUCCESS)
+    {
+        sprintf (errmsg, "Closing the GOES-R ABI netCDF file: %s",
+            goes_netcdf_file);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+
+    /* Remove the source file if specified */
+    if (del_src)
+    {
+        printf ("  Removing %s\n", goes_netcdf_file);
+        if (unlink (goes_netcdf_file) != 0)
+        {
+            sprintf (errmsg, "Deleting source file: %s", goes_netcdf_file);
+            error_handler (true, FUNC_NAME, errmsg);
+            return (ERROR);
+        }
+    }
+
+    /* Free the metadata structure */
+    free_metadata (&xml_metadata);
+
+    /* Successful conversion */
+    return (SUCCESS);
+}
+

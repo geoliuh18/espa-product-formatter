@@ -33,6 +33,9 @@ NOTES:
 #define ESPA_WGS84   317
 #define ESPA_NODATUM -1
 
+/* Special definition of the Geostationary projection */
+#define ESPA_GEOSTATIONARY 99
+
 /* Define the semi-major axis (meters), semi-minor axis (meters), and the
    inverse flattening for each of the spheroids.
    Obtained from NGA Reference Ellipsoid Parameters via

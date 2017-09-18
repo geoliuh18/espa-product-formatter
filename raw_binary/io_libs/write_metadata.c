@@ -154,6 +154,7 @@ int write_metadata
         case GCTP_ALBERS_PROJ: strcpy (myproj, "ALBERS"); break;
         case GCTP_PS_PROJ: strcpy (myproj, "PS"); break;
         case GCTP_SIN_PROJ: strcpy (myproj, "SIN"); break;
+        case ESPA_GEOSTATIONARY: strcpy (myproj, "GEOSTATIONARY"); break;
         default: strcpy (myproj, "undefined"); break;
     }
     if (gmeta->proj_info.datum_type != ESPA_NODATUM)
@@ -237,6 +238,24 @@ int write_metadata
             "                <false_northing>%lf</false_northing>\n"
             "            </sin_proj_params>\n",
             gmeta->proj_info.sphere_radius, gmeta->proj_info.central_meridian,
+            gmeta->proj_info.false_easting, gmeta->proj_info.false_northing);
+    }
+
+    /* Geostationary-specific parameters */
+    if (gmeta->proj_info.proj_type == ESPA_GEOSTATIONARY)
+    {
+        fprintf (fptr,
+            "            <geostationary_proj_params>\n"
+            "                <semi_major_axis>%lf</semi_major_axis>\n"
+            "                <semi_minor_axis>%lf</semi_minor_axis>\n"
+            "                <satellite_height>%lf</satellite_height>\n"
+            "                <central_meridian>%lf</central_meridian>\n"
+            "                <false_easting>%lf</false_easting>\n"
+            "                <false_northing>%lf</false_northing>\n"
+            "            </geostationary_proj_params>\n",
+            gmeta->proj_info.semi_major_axis, gmeta->proj_info.semi_minor_axis,
+            gmeta->proj_info.satellite_height,
+            gmeta->proj_info.central_meridian,
             gmeta->proj_info.false_easting, gmeta->proj_info.false_northing);
     }
 
@@ -756,6 +775,8 @@ void print_metadata_struct
         printf ("  projection type: POLAR STEREOGRAPHIC\n");
     else if (metadata->global.proj_info.proj_type == GCTP_SIN_PROJ)
         printf ("  projection type: SINUSOIDAL\n");
+    else if (metadata->global.proj_info.proj_type == ESPA_GEOSTATIONARY)
+        printf ("  projection type: GEOSTATIONARY\n");
     printf ("  projection units: %s\n", metadata->global.proj_info.units);
     printf ("  UL projection x,y: %f, %f\n",
         metadata->global.proj_info.ul_corner[0],
@@ -799,6 +820,21 @@ void print_metadata_struct
     {
         printf ("  sphere_radius: %f\n",
             metadata->global.proj_info.sphere_radius);
+        printf ("  central_meridian: %f\n",
+            metadata->global.proj_info.central_meridian);
+        printf ("  false_easting: %f\n",
+            metadata->global.proj_info.false_easting);
+        printf ("  false_northing: %f\n",
+            metadata->global.proj_info.false_northing);
+    }
+    else if (metadata->global.proj_info.proj_type == ESPA_GEOSTATIONARY)
+    {
+        printf ("  semi_major_axis: %f\n",
+            metadata->global.proj_info.semi_major_axis);
+        printf ("  semi_minor_axis: %f\n",
+            metadata->global.proj_info.semi_minor_axis);
+        printf ("  satellite_height: %f\n",
+            metadata->global.proj_info.satellite_height);
         printf ("  central_meridian: %f\n",
             metadata->global.proj_info.central_meridian);
         printf ("  false_easting: %f\n",

@@ -32,8 +32,8 @@ NOTES:
 #define ESPA_SCHEMA_VERSION "2.0"
 #define ESPA_NS "http://espa.cr.usgs.gov/v2"
 #define ESPA_SCHEMA_LOCATION "http://espa.cr.usgs.gov/v2"
-#define ESPA_SCHEMA "http://espa.cr.usgs.gov/schema/espa_internal_metadata_v2_0.xsd"
-#define LOCAL_ESPA_SCHEMA "/usr/local/espa-product-formatter/schema/espa_internal_metadata_v2_0.xsd"
+#define ESPA_SCHEMA "http://espa.cr.usgs.gov/schema/espa_internal_metadata_v2_1.xsd"
+#define LOCAL_ESPA_SCHEMA "/usr/local/espa-product-formatter/schema/espa_internal_metadata_v2_1.xsd"
 
 /* Data types */
 enum Espa_data_type
@@ -114,6 +114,13 @@ typedef struct
     /* double false_easting; -- already defined */
     /* double false_northing; -- already defined */
 
+    /* Geostationary projection parameters */
+    double semi_major_axis;
+    double semi_minor_axis;
+    double satellite_height;
+    /* double central_meridian; -- already defined */
+    /* double false_easting; -- already defined */
+    /* double false_northing; -- already defined */
 } Espa_proj_meta_t;
 
 typedef struct

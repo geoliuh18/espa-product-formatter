@@ -27,8 +27,8 @@ ERROR           An error occurred generating the header file
 SUCCESS         Header file was successful
 
 NOTES:
-  1. Only supports GEO, UTM, ALBERS, PS, and SIN projections.
-  2. Only supports WGS84, NAD27, NAD83 datums (GEO, UTM, ALBERS, PS).
+  1. Only supports GEO, UTM, ALBERS, PS, SIN, and Geostationary projections.
+  2. Only supports WGS84, NAD27, NAD83 datums.
   3. Sinusoidal needs to pass the radius of the sphere in the first
      projection parameter for the ENVI header.
   4. The following are the strings to use for the various datums, obtained from
@@ -71,7 +71,8 @@ int write_envi_hdr
         hdr->proj_type != GCTP_UTM_PROJ &&
         hdr->proj_type != GCTP_ALBERS_PROJ &&
         hdr->proj_type != GCTP_PS_PROJ &&
-        hdr->proj_type != GCTP_SIN_PROJ)
+        hdr->proj_type != GCTP_SIN_PROJ &&
+        hdr->proj_type != ESPA_GEOSTATIONARY)
     {
         sprintf (errmsg, "Unsupported projection code (%d).  GEO projection "
             "code (%d) or UTM projection code (%d) or ALBERS projection code "
@@ -276,6 +277,10 @@ int write_envi_hdr
             hdr->proj_parms[7]);
 */
     }
+    else if (hdr->proj_type == ESPA_GEOSTATIONARY)
+    {
+/* GAIL TODO */
+    }
 
     /* Write the array of band names */
     fprintf (hdr_fptr, "band names = {%s", hdr->band_names[0]);
@@ -398,9 +403,10 @@ int create_envi_struct
             sprintf (errmsg, "Unsupported projection type (%d).  GEO "
                 "projection code (%d) or UTM projection code (%d) or ALBERS "
                 "projection code (%d) or PS projection code (%d) or SIN "
-                "projection code (%d) expected.", gmeta->proj_info.proj_type,
-                GCTP_GEO_PROJ, GCTP_UTM_PROJ, GCTP_ALBERS_PROJ, GCTP_PS_PROJ,
-                GCTP_SIN_PROJ);
+                "projection code (%d) or Geostationary (%d) expected.",
+                gmeta->proj_info.proj_type, GCTP_GEO_PROJ, GCTP_UTM_PROJ,
+                GCTP_ALBERS_PROJ, GCTP_PS_PROJ, GCTP_SIN_PROJ,
+                ESPA_GEOSTATIONARY);
             error_handler (true, FUNC_NAME, errmsg);
             return (ERROR);
     }

@@ -63,6 +63,7 @@ int validate_xml_file
             schema_file = ESPA_SCHEMA;
         }
     }
+printf ("DEBUG: Using %s to validate schema\n", schema_file);
 
     /* Set up the schema parser and parse the schema file/URL */
     xmlLineNumbersDefault (1);

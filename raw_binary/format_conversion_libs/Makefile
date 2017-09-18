@@ -20,7 +20,8 @@ EXTRA = -Wall $(EXTRA_OPTIONS)
 # Define the include files
 INC = convert_lpgs_to_espa.h convert_espa_to_hdf.h convert_espa_to_netcdf.h \
       espa_hdf.h espa_hdf_eos.h convert_espa_to_gtif.h espa_geoloc.h \
-      convert_modis_to_espa.h convert_espa_to_raw_binary_bip.h
+      convert_modis_to_espa.h convert_goes_to_espa.h reproject_goes.h \
+      convert_espa_to_raw_binary_bip.h
 
 # Define the source code and object files
 SRC = \
@@ -31,6 +32,7 @@ SRC = \
       convert_espa_to_gtif.c           \
       convert_modis_to_espa.c          \
       espa_geoloc.c                    \
+      reproject_goes.c                 \
       convert_espa_to_raw_binary_bip.c
 
 OBJ = $(SRC:.c=.o)
@@ -43,8 +45,10 @@ INCDIR  = -I. -I../include -I$(XML2INC) -I$(TIFFINC) -I$(GEOTIFF_INC) \
 NCFLAGS = $(EXTRA) $(INCDIR)
 
 # Make separate HDF5/netCDF definitions since HDF4 interferes with them.
-SRC_NETCDF = convert_espa_to_netcdf.c
-OBJ_NETCDF = $(SRC_NETCDF:.c=.o)
+SRC_NETCDF1 = convert_espa_to_netcdf.c
+OBJ_NETCDF1 = $(SRC_NETCDF1:.c=.o)
+SRC_NETCDF2 = convert_goes_to_espa.c
+OBJ_NETCDF2 = $(SRC_NETCDF2:.c=.o)
 NETCDF_INCDIR = -I. -I../include -I$(XML2INC) -I$(HDF5INC) -I$(NCDF4INC)
 NETCDF_NCFLAGS = $(EXTRA) $(NETCDF_INCDIR)
 
@@ -60,9 +64,10 @@ ARCHIVE = lib_espa_format_conversion.a
 #-----------------------------------------------------------------------------
 all: $(ARCHIVE)
 
-$(ARCHIVE): $(OBJ) $(INC) $(OBJ_NETCDF)
+$(ARCHIVE): $(OBJ) $(INC) $(OBJ_NETCDF1) $(OBJ_NETCDF2)
 	$(AR) $(ARCHIVE) $(OBJ)
-	$(AR) $(ARCHIVE) $(OBJ_NETCDF)
+	$(AR) $(ARCHIVE) $(OBJ_NETCDF1)
+	$(AR) $(ARCHIVE) $(OBJ_NETCDF2)
 	install -d ../lib
 	install -d ../include
 	install -m 644 $(ARCHIVE) ../lib
@@ -95,9 +100,12 @@ clean:
 
 #-----------------------------------------------------------------------------
 $(OBJ): $(INC)
-
-$(OBJ_NETCDF): $(SRC_NETCDF)
-	$(CC) $(NETCDF_NCFLAGS) -c $<
-
 .c.o:
 	$(CC) $(NCFLAGS) -c $<
+
+$(OBJ_NETCDF1): $(SRC_NETCDF1)
+	$(CC) $(NETCDF_NCFLAGS) -c $<
+
+$(OBJ_NETCDF2): $(SRC_NETCDF2)
+	$(CC) $(NETCDF_NCFLAGS) -c $<
+
