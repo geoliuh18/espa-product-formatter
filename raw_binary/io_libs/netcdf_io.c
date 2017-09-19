@@ -49,7 +49,6 @@ int open_netcdf
         error_handler (true, FUNC_NAME, errmsg);
         return (ERROR);
     }
-printf ("ncid: %d\n", *ncid);
 
     return (SUCCESS);
 }
@@ -135,8 +134,6 @@ int ncdf_read_gridded_attr
         error_handler (true, FUNC_NAME, errmsg);
         return (ERROR);
     }
-printf ("Number of dimensions: %d\n", ndims);
-printf ("Number of variables: %d\n", nvars);
 
     /* If the number of dimensions or variables is greater than what we've
        planned for, then flag it because the size of the inq arrays will be
@@ -171,7 +168,6 @@ printf ("Number of variables: %d\n", nvars);
             error_handler (true, FUNC_NAME, errmsg);
             return (ERROR);
         }
-printf ("Dimension %d: %s - %d\n", i, in_dimnames[i], (int) in_dimsizes[i]);
     }
 
     /* Get information about the variables in the file */
@@ -187,29 +183,20 @@ printf ("Dimension %d: %s - %d\n", i, in_dimnames[i], (int) in_dimsizes[i]);
             error_handler (true, FUNC_NAME, errmsg);
             return (ERROR);
         }
-printf ("Variable %d: %s\n", i, in_varnames[i]);
-printf ("  ndims - %d\n", in_var_ndims[i]);
-if (in_var_ndims[i] == 2) printf ("  dims - %d %d\n", in_var_dimids[i][0], in_var_dimids[i][1]);
-printf ("  natts - %d\n", in_var_natts[i]);
 
         /* If this variable is our primary variable to be read then store
            the index and break out */
         if (!strcmp (in_varnames[i], varname))
         {
-printf ("  **Primary variable found\n");
             attr->primary_index = i;
             primary_ndims = in_var_ndims[i];
             for (d = 0; d < primary_ndims; d++)
             {
                 primary_dimids[d] = in_var_dimids[i][d];
-printf ("  primary dimid: %d\n", primary_dimids[d]);
             }
             break;
         }
     }
-printf ("Primary index for %s variable is %d\n", varname, attr->primary_index);
-printf ("Primary ndims is %d\n", primary_ndims);
-printf ("Primary dimids: %d %d\n", primary_dimids[0], primary_dimids[1]);
 
     /* Make sure the primary variable was found */
     if (attr->primary_index == -1)
@@ -226,8 +213,6 @@ printf ("Primary dimids: %d %d\n", primary_dimids[0], primary_dimids[1]);
     /* Store the number of lines and samples in the desired primary variable */
     if (primary_ndims == 2)
     {  /* set up 2D dimensions */
-printf ("Size of x dimension: %d\n", (int) in_dimsizes[primary_dimids[1]]);
-printf ("Size of y dimension: %d\n", (int) in_dimsizes[primary_dimids[0]]);
         attr->nsamps = in_dimsizes[primary_dimids[1]];
         attr->nlines = in_dimsizes[primary_dimids[0]];
     }
@@ -253,8 +238,6 @@ printf ("Size of y dimension: %d\n", (int) in_dimsizes[primary_dimids[0]]);
         sscanf (tmpstr, "%s %lf %s %s %lf %s", ignore_str, &attr->pixel_size[1],
         ignore_str, ignore_str, &attr->pixel_size[0], ignore_str);
     }
-if (attr->pixel_size_defined) printf ("Pixel size: %s\n", tmpstr);
-if (attr->pixel_size_defined) printf ("Pixel size: %lf %lf\n", attr->pixel_size[0], attr->pixel_size[1]);
 
     /* Get the scale factor for the specified primary variable */
     attr->scale_defined = true;
@@ -263,7 +246,6 @@ if (attr->pixel_size_defined) printf ("Pixel size: %lf %lf\n", attr->pixel_size[
     {
         attr->scale_defined = false;
     }
-if (attr->scale_defined) printf ("Scale_factor: %lf\n", attr->scale_fact);
 
     /* Get the offset for the specified primary variable */
     attr->offset_defined = true;
@@ -272,7 +254,6 @@ if (attr->scale_defined) printf ("Scale_factor: %lf\n", attr->scale_fact);
     {
         attr->offset_defined = false;
     }
-if (attr->offset_defined) printf ("Offset: %lf\n", attr->add_offset);
 
 
     /* Set up the void pointer for the fill value and read the valid range */
@@ -281,7 +262,6 @@ if (attr->offset_defined) printf ("Offset: %lf\n", attr->add_offset);
     switch (in_data_type[attr->primary_index])
     {
         case NC_BYTE:
-printf ("Data type: byte\n");
             fill_value = &fill_char;
 
             /* Get the valid range for the specified primary variable.  Valid
@@ -300,7 +280,6 @@ printf ("Data type: byte\n");
             break;
 
         case NC_UBYTE:
-printf ("Data type: ubyte\n");
             fill_value = &fill_ubyte;
 
             /* Get the valid range for the specified primary variable.  Valid
@@ -319,7 +298,6 @@ printf ("Data type: ubyte\n");
             break;
 
         case NC_SHORT:
-printf ("Data type: short\n");
             fill_value = &fill_short;
 
             /* Get the valid range for the specified primary variable.  Valid
@@ -338,7 +316,6 @@ printf ("Data type: short\n");
             break;
 
         case NC_USHORT:
-printf ("Data type: ushort\n");
             fill_value = &fill_ushort;
 
             /* Get the valid range for the specified primary variable.  Valid
@@ -357,7 +334,6 @@ printf ("Data type: ushort\n");
             break;
 
         case NC_INT:
-//printf ("Data type: int\n");
             fill_value = &fill_int;
 
             /* Get the valid range for the specified primary variable.  Valid
@@ -376,7 +352,6 @@ printf ("Data type: ushort\n");
             break;
 
         case NC_UINT:
-//printf ("Data type: uint\n");
             fill_value = &fill_uint;
 
             /* Get the valid range for the specified primary variable.  Valid
@@ -395,7 +370,6 @@ printf ("Data type: ushort\n");
             break;
 
         case NC_FLOAT:
-//printf ("Data type: float\n");
             fill_value = &fill_float;
 
             /* Get the valid range for the specified primary variable.  Valid
@@ -420,7 +394,6 @@ printf ("Data type: ushort\n");
             error_handler (true, FUNC_NAME, errmsg);
             return (ERROR);
     }
-if (attr->scale_defined) printf ("Valid_range: %f - %f\n", attr->valid_range[0], attr->valid_range[1]);
 
     /* Get the fill value, which is dependent upon the data type */
     if ((retval = nc_inq_var_fill (ncid, attr->primary_index, &no_fill,
@@ -472,7 +445,6 @@ if (attr->scale_defined) printf ("Valid_range: %f - %f\n", attr->valid_range[0],
                 return (ERROR);
         }
     }
-printf ("Fill value: %f\n", attr->fill_value);
 
     return (SUCCESS);
 }

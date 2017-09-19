@@ -224,6 +224,7 @@ int main (int argc, char** argv)
 
     /* Convert the GOES netCDF red band to ESPA raw binary and XML.  The XML
        file will be created with this call to convert_goes_to_espa. */
+    printf ("Converting red band from GOES to ESPA ... %s\n", red_infile);
     append_bands = false;
     if (convert_goes_to_espa (red_infile, xml_outfile, append_bands, del_src)
         != SUCCESS)
@@ -234,6 +235,7 @@ int main (int argc, char** argv)
     /* Convert the GOES netCDF NIR band to ESPA raw binary and XML.  The XML
        file has already been created, so this time the bands will simply be
        appended. */
+    printf ("\nConverting NIR band from GOES to ESPA ... %s\n", nir_infile);
     append_bands = true;
     if (convert_goes_to_espa (nir_infile, xml_outfile, append_bands, del_src)
         != SUCCESS)

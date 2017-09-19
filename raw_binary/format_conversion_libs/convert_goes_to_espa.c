@@ -132,113 +132,6 @@ int doy_to_month_day
 
 
 /******************************************************************************
-MODULE:  read_product_version
-
-PURPOSE: Reads the product version from the algorithm_product_version_container.
-
-RETURN VALUE:
-Type = int
-Value           Description
------           -----------
-ERROR           Error reading the product version from the netCDF file
-SUCCESS         Successfully obtained the product version from the netCDF file
-
-NOTES:
-******************************************************************************/
-int read_product_version
-(
-    int ncid,               /* I: netCDF file ID */
-    char *product_version   /* O: product version */
-)
-{
-    char FUNC_NAME[] = "read_product_version";  /* function name */
-    char errmsg[STR_SIZE];   /* error message */
-    int i;                   /* looping variable */
-    int retval;              /* return value */
-    int ndims;               /* number of input dimensions in netCDF file */
-    int nvars;               /* number of input variables in netCDF file */
-    int ngatts;              /* number of global attributes in netCDF file */
-    int unlimdimid;          /* ID of the unlimited dimension */
-    int primary_index;       /* index of the primary variable */
-    char in_varnames[MAX_GRIDDED_NVARS][NC_MAX_NAME+1]; /* var names as read */
-    int in_var_ndims[MAX_GRIDDED_NVARS];  /* num dims for each var as read */
-    int in_var_dimids[MAX_GRIDDED_NVARS][MAX_GRIDDED_NDIMS];
-                             /* array for the dimension IDs as read */
-    int in_var_natts[MAX_GRIDDED_NVARS];  /* number of var attributes as read */
-    nc_type in_data_type[MAX_GRIDDED_NVARS];
-                             /* data type for each variable as read */
-
-    /* Determine how many netCDF variables, dimensions, and global attributes
-       are in the file; also the dimension id of the unlimited dimension, if
-       there is one. */
-    if ((retval = nc_inq (ncid, &ndims, &nvars, &ngatts, &unlimdimid)))
-    {
-        nc_strerror (retval);
-        sprintf (errmsg, "Error inquiring about the variables, dimensions, "
-            "global attributes, etc. for the netCDF file.");
-        error_handler (true, FUNC_NAME, errmsg);
-        return (ERROR);
-    }
-printf ("Number of variables: %d\n", nvars);
-printf ("Number of dims: %d\n", ndims);
-printf ("MAX_GRIDDED_NDIMS: %d\n", MAX_GRIDDED_NDIMS);
-printf ("MAX_GRIDDED_NVARS: %d\n", MAX_GRIDDED_NVARS);
-
-    /* Get information about the variables in the file */
-    primary_index = -1;     /* initialize index to invalid value */
-    for (i = 0; i < nvars; i++)
-    {
-        if ((retval = nc_inq_var (ncid, i, in_varnames[i],
-             &in_data_type[i], &in_var_ndims[i], in_var_dimids[i],
-             &in_var_natts[i])))
-        {
-            nc_strerror (retval);
-            sprintf (errmsg, "Error inquiring about variable %d", i);
-            error_handler (true, FUNC_NAME, errmsg);
-            return (ERROR);
-        }
-printf ("Variable %d/%d: %s\n", i, nvars, in_varnames[i]);
-printf ("  ndims - %d\n", in_var_ndims[i]);
-if (in_var_ndims[i] == 2) printf ("  dims - %d %d\n", in_var_dimids[i][0], in_var_dimids[i][1]);
-printf ("  natts - %d\n", in_var_natts[i]);
-
-        /* If this variable is our primary variable
-           (algorithm_product_version_container) then stop looking */
-        if (!strcmp (in_varnames[i], "algorithm_product_version_container"))
-        {
-printf ("  **Primary variable found\n");
-            primary_index = i;
-            break;
-        }
-    }
-
-    /* Make sure the primary variable was found */
-    if (primary_index == -1)
-    {
-        sprintf (errmsg, "Primary variable algorithm_product_version_container "
-            "was not found in the netCDF dataset.");
-        error_handler (true, FUNC_NAME, errmsg);
-        return (ERROR);
-    }
-
-    /* Read the product_version attribute from the primary variable */
-    if ((retval = nc_get_att_text (ncid, primary_index, "product_version",
-         product_version)))
-    {
-        nc_strerror (retval);
-        sprintf (errmsg, "Not able to obtain the product_version attribute "
-            "value from the primary variable "
-            "algorithm_product_version_container.");
-        error_handler (true, FUNC_NAME, errmsg);
-        return (ERROR);
-    }
-
-    /* Successful conversion */
-    return (SUCCESS);
-}
-
-
-/******************************************************************************
 MODULE:  read_geospatial_lat_lon
 
 PURPOSE: Reads the geospatial lat/long bounding coordinates from the
@@ -256,85 +149,22 @@ NOTES:
 int read_geospatial_lat_lon
 (
     int ncid,                 /* I: netCDF file ID */
+    int primary_index,        /* I: index of the primary variable */
     double *bound_coords      /* O: bounding coordinates */
 )
 {
     char FUNC_NAME[] = "read_geospatial_lat_lon";  /* function name */
     char errmsg[STR_SIZE];   /* error message */
-    int i;                   /* looping variable */
-    int retval;              /* return value */
-    int ndims;               /* number of input dimensions in netCDF file */
-    int nvars;               /* number of input variables in netCDF file */
-    int ngatts;              /* number of global attributes in netCDF file */
-    int unlimdimid;          /* ID of the unlimited dimension */
-    int primary_index;       /* index of the requested primary variable */
-    char in_varnames[MAX_GRIDDED_NVARS][NC_MAX_NAME+1]; /* var names as read */
-    int in_var_ndims[MAX_GRIDDED_NVARS];  /* num dims for each var as read */
-    int in_var_dimids[MAX_GRIDDED_NVARS][MAX_GRIDDED_NDIMS];
-                             /* array for the dimension IDs as read */
-    int in_var_natts[MAX_GRIDDED_NVARS];  /* number of var attributes as read */
-    nc_type in_data_type[MAX_GRIDDED_NVARS];
-                             /* data type for each variable as read */
-
-    /* Determine how many netCDF variables, dimensions, and global attributes
-       are in the file; also the dimension id of the unlimited dimension, if
-       there is one. */
-    if ((retval = nc_inq (ncid, &ndims, &nvars, &ngatts, &unlimdimid)))
-    {
-        nc_strerror (retval);
-        sprintf (errmsg, "Error inquiring about the variables, dimensions, "
-            "global attributes, etc. for the netCDF file.");
-        error_handler (true, FUNC_NAME, errmsg);
-        return (ERROR);
-    }
-printf ("Number of variables: %d\n", nvars);
-printf ("Number of dims: %d\n", ndims);
-
-    /* Get information about the variables in the file */
-    primary_index = -1;     /* initialize index to invalid value */
-    for (i = 0; i < nvars; i++)
-    {
-        if ((retval = nc_inq_var (ncid, i, in_varnames[i],
-             &in_data_type[i], &in_var_ndims[i], in_var_dimids[i],
-             &in_var_natts[i])))
-        {
-            nc_strerror (retval);
-            sprintf (errmsg, "Error inquiring about variable %d", i);
-            error_handler (true, FUNC_NAME, errmsg);
-            return (ERROR);
-        }
-printf ("Variable %d: %s\n", i, in_varnames[i]);
-printf ("  ndims - %d\n", in_var_ndims[i]);
-if (in_var_ndims[i] == 2) printf ("  dims - %d %d\n", in_var_dimids[i][0], in_var_dimids[i][1]);
-printf ("  natts - %d\n", in_var_natts[i]);
-
-        /* If this variable is our primary variable (geospatial_lat_lon_extent)
-           then stop looking */
-        if (!strcmp (in_varnames[i], "geospatial_lat_lon_extent"))
-        {
-printf ("  **Primary variable found\n");
-            primary_index = i;
-            break;
-        }
-    }
-
-    /* Make sure the primary variable was found */
-    if (primary_index == -1)
-    {
-        sprintf (errmsg, "Primary variable geosptial_lat_lon_extent was not "
-            "found in the netCDF dataset.");
-        error_handler (true, FUNC_NAME, errmsg);
-        return (ERROR);
-    }
+    int status;              /* return value */
 
     /* Read the geospatial_westbound_longitude, geospatial_northbound_latitude,
        geospatial_eastbound_longitude, and geospatial_southbound_latitude
        attributes from the primary variable */
     /* Westbound extent */
-    if ((retval = nc_get_att_double (ncid, primary_index,
+    if ((status = nc_get_att_double (ncid, primary_index,
          "geospatial_westbound_longitude", &bound_coords[ESPA_WEST])))
     {
-        nc_strerror (retval);
+        nc_strerror (status);
         sprintf (errmsg, "Not able to obtain the "
             "geospatial_westbound_longitude attribute value from the "
             "primary variable geospatial_lat_lon_extent.");
@@ -343,10 +173,10 @@ printf ("  **Primary variable found\n");
     }
 
     /* Eastbound extent */
-    if ((retval = nc_get_att_double (ncid, primary_index,
+    if ((status = nc_get_att_double (ncid, primary_index,
          "geospatial_eastbound_longitude", &bound_coords[ESPA_EAST])))
     {
-        nc_strerror (retval);
+        nc_strerror (status);
         sprintf (errmsg, "Not able to obtain the "
             "geospatial_eastbound_longitude attribute value from the "
             "primary variable geospatial_lat_lon_extent.");
@@ -355,10 +185,10 @@ printf ("  **Primary variable found\n");
     }
 
     /* Northbound extent */
-    if ((retval = nc_get_att_double (ncid, primary_index,
+    if ((status = nc_get_att_double (ncid, primary_index,
          "geospatial_northbound_latitude", &bound_coords[ESPA_NORTH])))
     {
-        nc_strerror (retval);
+        nc_strerror (status);
         sprintf (errmsg, "Not able to obtain the "
             "geospatial_northbound_latitude attribute value from the "
             "primary variable geospatial_lat_lon_extent.");
@@ -367,10 +197,10 @@ printf ("  **Primary variable found\n");
     }
 
     /* Southbound extent */
-    if ((retval = nc_get_att_double (ncid, primary_index,
+    if ((status = nc_get_att_double (ncid, primary_index,
          "geospatial_southbound_latitude", &bound_coords[ESPA_SOUTH])))
     {
-        nc_strerror (retval);
+        nc_strerror (status);
         sprintf (errmsg, "Not able to obtain the "
             "geospatial_southbound_latitude attribute value from the "
             "primary variable geospatial_lat_lon_extent.");
@@ -401,86 +231,23 @@ NOTES:
 int read_projection_info
 (
     int ncid,                    /* I: netCDF file ID */
+    int primary_index,           /* I: index of the primary variable */
     Espa_proj_meta_t *proj_info  /* O: projection information */
 )
 {
     char FUNC_NAME[] = "read_projection_info";  /* function name */
     char errmsg[STR_SIZE];   /* error message */
-    int i;                   /* looping variable */
-    int retval;              /* return value */
-    int ndims;               /* number of input dimensions in netCDF file */
-    int nvars;               /* number of input variables in netCDF file */
-    int ngatts;              /* number of global attributes in netCDF file */
-    int unlimdimid;          /* ID of the unlimited dimension */
-    int primary_index;       /* index of the requested primary variable */
-    char tmpstr[NC_MAX_NAME+1];  /* string value for projection */
-    char in_varnames[MAX_GRIDDED_NVARS][NC_MAX_NAME+1]; /* var names as read */
-    int in_var_ndims[MAX_GRIDDED_NVARS];  /* num dims for each var as read */
-    int in_var_dimids[MAX_GRIDDED_NVARS][MAX_GRIDDED_NDIMS];
-                             /* array for the dimension IDs as read */
-    int in_var_natts[MAX_GRIDDED_NVARS];  /* number of var attributes as read */
-    nc_type in_data_type[MAX_GRIDDED_NVARS];
-                             /* data type for each variable as read */
-
-    /* Determine how many netCDF variables, dimensions, and global attributes
-       are in the file; also the dimension id of the unlimited dimension, if
-       there is one. */
-    if ((retval = nc_inq (ncid, &ndims, &nvars, &ngatts, &unlimdimid)))
-    {
-        nc_strerror (retval);
-        sprintf (errmsg, "Error inquiring about the variables, dimensions, "
-            "global attributes, etc. for the netCDF file.");
-        error_handler (true, FUNC_NAME, errmsg);
-        return (ERROR);
-    }
-printf ("Number of variables: %d\n", nvars);
-printf ("Number of dims: %d\n", ndims);
-
-    /* Get information about the variables in the file */
-    primary_index = -1;     /* initialize index to invalid value */
-    for (i = 0; i < nvars; i++)
-    {
-        if ((retval = nc_inq_var (ncid, i, in_varnames[i],
-             &in_data_type[i], &in_var_ndims[i], in_var_dimids[i],
-             &in_var_natts[i])))
-        {
-            nc_strerror (retval);
-            sprintf (errmsg, "Error inquiring about variable %d", i);
-            error_handler (true, FUNC_NAME, errmsg);
-            return (ERROR);
-        }
-printf ("Variable %d: %s\n", i, in_varnames[i]);
-printf ("  ndims - %d\n", in_var_ndims[i]);
-if (in_var_ndims[i] == 2) printf ("  dims - %d %d\n", in_var_dimids[i][0], in_var_dimids[i][1]);
-printf ("  natts - %d\n", in_var_natts[i]);
-
-        /* If this variable is our primary variable (goes_imager_projection)
-           then stop looking */
-        if (!strcmp (in_varnames[i], "goes_imager_projection"))
-        {
-printf ("  **Primary variable found\n");
-            primary_index = i;
-            break;
-        }
-    }
-
-    /* Make sure the primary variable was found */
-    if (primary_index == -1)
-    {
-        sprintf (errmsg, "Primary variable goes_imager_projection was not "
-            "found in the netCDF dataset.");
-        error_handler (true, FUNC_NAME, errmsg);
-        return (ERROR);
-    }
+    char tmpstr[STR_SIZE];   /* temporary string for reading attributes */
+    int status;              /* return value */
 
     /* Read the grid_mapping_name, semi_major_axis, semi_minor_axis,
        longitude_of_projection_origin, and perspective_point_height attributes
        from the primary variable */
     /* Grid mapping name */
-    if ((retval = nc_get_att_text (ncid, primary_index, "grid_mapping_name",
+    if ((status = nc_get_att_text (ncid, primary_index, "grid_mapping_name",
          tmpstr)))
     {
-        nc_strerror (retval);
+        nc_strerror (status);
         sprintf (errmsg, "Not able to obtain the grid_mapping_name "
             "attribute value from the primary variable "
             "goes_imager_projection.");
@@ -498,10 +265,10 @@ printf ("  **Primary variable found\n");
     proj_info->proj_type = ESPA_GEOSTATIONARY;
 
     /* Semi-major axis */
-    if ((retval = nc_get_att_double (ncid, primary_index, "semi_major_axis",
+    if ((status = nc_get_att_double (ncid, primary_index, "semi_major_axis",
          &proj_info->semi_major_axis)))
     {
-        nc_strerror (retval);
+        nc_strerror (status);
         sprintf (errmsg, "Not able to obtain the semi_major_axis attribute "
             "value from the primary variable goes_imager_projection.");
         error_handler (true, FUNC_NAME, errmsg);
@@ -509,10 +276,10 @@ printf ("  **Primary variable found\n");
     }
 
     /* Semi-minor axis */
-    if ((retval = nc_get_att_double (ncid, primary_index, "semi_minor_axis",
+    if ((status = nc_get_att_double (ncid, primary_index, "semi_minor_axis",
          &proj_info->semi_minor_axis)))
     {
-        nc_strerror (retval);
+        nc_strerror (status);
         sprintf (errmsg, "Not able to obtain the semi_minor_axis attribute "
             "value from the primary variable goes_imager_projection.");
         error_handler (true, FUNC_NAME, errmsg);
@@ -520,10 +287,10 @@ printf ("  **Primary variable found\n");
     }
 
     /* Central meridian */
-    if ((retval = nc_get_att_double (ncid, primary_index,
+    if ((status = nc_get_att_double (ncid, primary_index,
          "longitude_of_projection_origin", &proj_info->central_meridian)))
     {
-        nc_strerror (retval);
+        nc_strerror (status);
         sprintf (errmsg, "Not able to obtain the "
             "longitude_of_projection_origin attribute value from the primary "
             "variable goes_imager_projection.");
@@ -532,10 +299,10 @@ printf ("  **Primary variable found\n");
     }
 
     /* Satellite height */
-    if ((retval = nc_get_att_double (ncid, primary_index,
+    if ((status = nc_get_att_double (ncid, primary_index,
          "perspective_point_height", &proj_info->satellite_height)))
     {
-        nc_strerror (retval);
+        nc_strerror (status);
         sprintf (errmsg, "Not able to obtain the perspective_point_height "
             "attribute value from the primary variable "
             "goes_imager_projection.");
@@ -592,79 +359,16 @@ NOTES:
 int read_image_bounds
 (
     int ncid,                 /* I: netCDF file ID */
-    char *varname,            /* I: variable name to be read from netCDF file */
+    int primary_index,        /* I: index of the primary variable */
     float *image_bounds       /* O: image bounds from specified variable */
 )
 {
     char FUNC_NAME[] = "read_image_bounds";  /* function name */
     char errmsg[STR_SIZE];   /* error message */
-    int i;                   /* looping variable */
-    int retval;              /* return value */
-    int ndims;               /* number of input dimensions in netCDF file */
-    int nvars;               /* number of input variables in netCDF file */
-    int ngatts;              /* number of global attributes in netCDF file */
-    int unlimdimid;          /* ID of the unlimited dimension */
-    int primary_index;       /* index of the requested primary variable */
-    char in_varnames[MAX_GRIDDED_NVARS][NC_MAX_NAME+1]; /* var names as read */
-    int in_var_ndims[MAX_GRIDDED_NVARS];  /* num dims for each var as read */
-    int in_var_dimids[MAX_GRIDDED_NVARS][MAX_GRIDDED_NDIMS];
-                             /* array for the dimension IDs as read */
-    int in_var_natts[MAX_GRIDDED_NVARS];  /* number of var attributes as read */
+    int status;              /* return value */
     size_t start[1];         /* starting location for reading data */
     size_t count[1];         /* how many values within each dimension will be
                                 read */
-    nc_type in_data_type[MAX_GRIDDED_NVARS];
-                             /* data type for each variable as read */
-
-    /* Determine how many netCDF variables, dimensions, and global attributes
-       are in the file; also the dimension id of the unlimited dimension, if
-       there is one. */
-    if ((retval = nc_inq (ncid, &ndims, &nvars, &ngatts, &unlimdimid)))
-    {
-        nc_strerror (retval);
-        sprintf (errmsg, "Error inquiring about the variables, dimensions, "
-            "global attributes, etc. for the netCDF file.");
-        error_handler (true, FUNC_NAME, errmsg);
-        return (ERROR);
-    }
-printf ("Number of variables: %d\n", nvars);
-printf ("Number of dims: %d\n", ndims);
-
-    /* Get information about the variables in the file */
-    primary_index = -1;     /* initialize index to invalid value */
-    for (i = 0; i < nvars; i++)
-    {
-        if ((retval = nc_inq_var (ncid, i, in_varnames[i],
-             &in_data_type[i], &in_var_ndims[i], in_var_dimids[i],
-             &in_var_natts[i])))
-        {
-            nc_strerror (retval);
-            sprintf (errmsg, "Error inquiring about variable %d", i);
-            error_handler (true, FUNC_NAME, errmsg);
-            return (ERROR);
-        }
-printf ("Variable %d: %s\n", i, in_varnames[i]);
-printf ("  ndims - %d\n", in_var_ndims[i]);
-if (in_var_ndims[i] == 2) printf ("  dims - %d %d\n", in_var_dimids[i][0], in_var_dimids[i][1]);
-printf ("  natts - %d\n", in_var_natts[i]);
-
-        /* If this variable is our primary variable, then stop looking */
-        if (!strcmp (in_varnames[i], varname))
-        {
-printf ("  **Primary variable found\n");
-            primary_index = i;
-            break;
-        }
-    }
-
-    /* Make sure the primary variable was found */
-    if (primary_index == -1)
-    {
-        sprintf (errmsg, "Primary variable %s was not found in the netCDF "
-            "dataset.", varname);
-        error_handler (true, FUNC_NAME, errmsg);
-        return (ERROR);
-    }
 
     /* Read the array of two floating point values for the min/max bounds*/
     /* Initialize start variable to start reading at 0 index */
@@ -674,15 +378,187 @@ printf ("  **Primary variable found\n");
     count[0] = 2;    /* x */
 
     /* Read the data */
-    if ((retval = nc_get_vara_float (ncid, primary_index, start, count,
+    if ((status = nc_get_vara_float (ncid, primary_index, start, count,
          image_bounds)))
     {
-        nc_strerror (retval);
-        sprintf (errmsg, "Error reading image bounds from primary variable %s",
-            varname);
+        nc_strerror (status);
+        sprintf (errmsg, "Error reading image bounds from primary variable");
         error_handler (true, FUNC_NAME, errmsg);
         return (ERROR);
     }
+
+    /* Successful conversion */
+    return (SUCCESS);
+}
+
+
+/******************************************************************************
+MODULE:  read_ncdf_metadata
+
+PURPOSE: Reads the product version, projection information, bounding
+coordinates, and lat/long extents from the netCDF file.
+
+RETURN VALUE:
+Type = int
+Value           Description
+-----           -----------
+ERROR           Error reading the product version from the netCDF file
+SUCCESS         Successfully obtained the product version from the netCDF file
+
+NOTES:
+******************************************************************************/
+int read_ncdf_metadata
+(
+    int ncid,               /* I: netCDF file ID */
+    char *product_version,  /* O: product version */
+    double *bound_coords,   /* O: bounding coordinates */
+    Espa_proj_meta_t *proj_info,  /* O: projection information */
+    float *x_image_bounds,  /* O: x-direction image bounds */
+    float *y_image_bounds   /* O: y-direction image bounds */
+)
+{
+    char FUNC_NAME[] = "read_ncdf_metadata";  /* function name */
+    char errmsg[STR_SIZE];   /* error message */
+    int i;                   /* looping variable */
+    int status;              /* return value */
+    int ndims;               /* number of input dimensions in netCDF file */
+    int nvars;               /* number of input variables in netCDF file */
+    int ngatts;              /* number of global attributes in netCDF file */
+    int unlimdimid;          /* ID of the unlimited dimension */
+    int primary_index;       /* index of the primary variable */
+    char in_varnames[MAX_GRIDDED_NVARS][NC_MAX_NAME+1]; /* var names as read */
+    int in_var_ndims[MAX_GRIDDED_NVARS];  /* num dims for each var as read */
+    int in_var_dimids[MAX_GRIDDED_NVARS][MAX_GRIDDED_NDIMS];
+                             /* array for the dimension IDs as read */
+    int in_var_natts[MAX_GRIDDED_NVARS];  /* number of var attributes as read */
+    nc_type in_data_type[MAX_GRIDDED_NVARS];
+                             /* data type for each variable as read */
+
+    /* Determine how many netCDF variables, dimensions, and global attributes
+       are in the file; also the dimension id of the unlimited dimension, if
+       there is one. */
+    if ((status = nc_inq (ncid, &ndims, &nvars, &ngatts, &unlimdimid)))
+    {
+        nc_strerror (status);
+        sprintf (errmsg, "Error inquiring about the variables, dimensions, "
+            "global attributes, etc. for the netCDF file.");
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
+//printf ("Number of variables: %d\n", nvars);
+//printf ("Number of dims: %d\n", ndims);
+//printf ("MAX_GRIDDED_NDIMS: %d\n", MAX_GRIDDED_NDIMS);
+//printf ("MAX_GRIDDED_NVARS: %d\n", MAX_GRIDDED_NVARS);
+
+    /* Get information about the variables in the file */
+    primary_index = -1;     /* initialize index to invalid value */
+    for (i = 0; i < nvars; i++)
+    {
+        if ((status = nc_inq_var (ncid, i, in_varnames[i],
+             &in_data_type[i], &in_var_ndims[i], in_var_dimids[i],
+             &in_var_natts[i])))
+        {
+            nc_strerror (status);
+            sprintf (errmsg, "Error inquiring about variable %d", i);
+            error_handler (true, FUNC_NAME, errmsg);
+            return (ERROR);
+        }
+//printf ("Variable %d/%d: %s\n", i, nvars, in_varnames[i]);
+//printf ("  ndims - %d\n", in_var_ndims[i]);
+//if (in_var_ndims[i] == 2) printf ("  dims - %d %d\n", in_var_dimids[i][0], in_var_dimids[i][1]);
+//printf ("  natts - %d\n", in_var_natts[i]);
+
+        /* If this variable is algorithm_product_version_container then
+           process it */
+        if (!strcmp (in_varnames[i], "algorithm_product_version_container"))
+        {
+//printf ("  **algorithm_product_version_container found\n");
+            primary_index = i;
+
+            /* Read the product_version attribute */
+            if ((status = nc_get_att_text (ncid, primary_index,
+                 "product_version", product_version)))
+            {
+                nc_strerror (status);
+                sprintf (errmsg, "Not able to obtain the product_version "
+                    "attribute value from the primary variable "
+                    "algorithm_product_version_container.");
+                error_handler (true, FUNC_NAME, errmsg);
+                return (ERROR);
+            }
+        }
+
+        /* If this variable is geospatial_lat_lon_extent then process it */
+        if (!strcmp (in_varnames[i], "geospatial_lat_lon_extent"))
+        {
+//printf ("  **geospatial_lat_lon_extent found\n");
+            primary_index = i;
+
+            /* Read the bounding coordinates from the
+               geospatial_lat_lon_extent */
+            status = read_geospatial_lat_lon (ncid, primary_index,
+                bound_coords);
+            if (status != SUCCESS)
+            {
+                sprintf (errmsg, "Reading the bounding coordinates.");
+                error_handler (true, FUNC_NAME, errmsg);
+                return (ERROR);
+            }
+        }
+
+        /* If this variable is goes_imager_projection then process it */
+        if (!strcmp (in_varnames[i], "goes_imager_projection"))
+        {
+//printf ("  **goes_imager_projection found\n");
+            primary_index = i;
+
+            /* Read the projection information, which will be used for the
+               band data */
+            status = read_projection_info (ncid, primary_index, proj_info);
+            if (status != SUCCESS)
+            {
+                sprintf (errmsg, "Reading the projection information");
+                error_handler (true, FUNC_NAME, errmsg);
+                return (ERROR);
+            }
+        }
+
+        /* If this variable is x_image_bounds then process it */
+        if (!strcmp (in_varnames[i], "x_image_bounds"))
+        {
+//printf ("  **x_image_bounds variable found\n");
+            primary_index = i;
+
+            /* Read x image bounds for east/west projection extents.  These
+               represent the outer extents of the image and will need to be
+               adjusted to represent the center of the pixel. */
+            status = read_image_bounds (ncid, primary_index, x_image_bounds);
+            if (status != SUCCESS)
+            {
+                sprintf (errmsg, "Reading x_image_bounds east/west coords.");
+                error_handler (true, FUNC_NAME, errmsg);
+                return (ERROR);
+            }
+        }
+
+        /* If this variable is y_image_bounds then process it */
+        if (!strcmp (in_varnames[i], "y_image_bounds"))
+        {
+//printf ("  **y_image_bounds variable found\n");
+            primary_index = i;
+
+            /* Read y image bounds for north/south projection extents.  These
+               represent the outer extents of the image and will need to be
+               adjusted to represent the center of the pixel. */
+            status = read_image_bounds (ncid, primary_index, y_image_bounds);
+            if (status != SUCCESS)
+            {
+                sprintf (errmsg, "Reading y_image_bounds north/south coords.");
+                error_handler (true, FUNC_NAME, errmsg);
+                return (ERROR);
+            }
+        }
+    }  /* for i in nvars */
 
     /* Successful conversion */
     return (SUCCESS);
@@ -732,7 +608,7 @@ int read_goes_netcdf
     char timestr[8];          /* string to hold acquisition/production time */
     char *cptr = NULL;        /* character pointer for strings */
     int i;                    /* looping variable */
-    int retval;               /* return value */
+    int status;               /* return status */
     int count;                /* number of chars copied in snprintf */
     int acq_doy;              /* acquisition DOY */
     int acq_year;             /* acquisition year */
@@ -745,7 +621,6 @@ int read_goes_netcdf
     int prod_hour;            /* production hour */
     int prod_min;             /* production minute */
     int prod_sec;             /* production seconds */
-    int status;               /* return status */
     float x_image_bounds[2];  /* west/east image coordinates for the x dim */
     float y_image_bounds[2];  /* north/south image coordinates for the y dim */
 
@@ -908,73 +783,29 @@ int read_goes_netcdf
         return (ERROR);
     }
 
-    /* Read the bounding coordinates from the geospatial_lat_lon_extent */
-    status = read_geospatial_lat_lon (ncid, gmeta->bounding_coords);
+    /* Read the various global and variable attributes from the netCDF file */
+    status = read_ncdf_metadata (ncid, product_version, gmeta->bounding_coords,
+        &gmeta->proj_info, x_image_bounds, y_image_bounds);
     if (status != SUCCESS)
     {
-        sprintf (errmsg, "Reading the bounding coordinates.");
-        error_handler (true, FUNC_NAME, errmsg);
-        return (ERROR);
-    }
-
-    /* Read the projection information, which will be used for the band data */
-    status = read_projection_info (ncid, &gmeta->proj_info);
-    if (status != SUCCESS)
-    {
-        sprintf (errmsg, "Reading the projection information");
-        error_handler (true, FUNC_NAME, errmsg);
-        return (ERROR);
-    }
-
-    /* Read x/y image bounds for east/west, north/south projection extents.
-       These represent the outer extents of the image and will need to be
-       adjusted to represent the center of the pixel. */
-    status = read_image_bounds (ncid, "x_image_bounds", x_image_bounds);
-    if (status != SUCCESS)
-    {
-        sprintf (errmsg, "Reading the x_image_bounds east/west coordinates.");
-        error_handler (true, FUNC_NAME, errmsg);
-        return (ERROR);
-    }
-
-    status = read_image_bounds (ncid, "y_image_bounds", y_image_bounds);
-    if (status != SUCCESS)
-    {
-        sprintf (errmsg, "Reading the y_image_bounds north/south coordinates.");
-        error_handler (true, FUNC_NAME, errmsg);
-        return (ERROR);
-    }
-
-    /* Allocate bands for the XML structure */
-    metadata->nbands = NGOES_BANDS;
-    if (allocate_band_metadata (metadata, metadata->nbands) != SUCCESS)
-    {   /* Error messages already printed */
-        return (ERROR);
-    }
-    bmeta = metadata->band;
-
-    /* Read the product version from the algorithm_product_version_container */
-    status = read_product_version (ncid, product_version);
-    if (status != SUCCESS)
-    {
-        sprintf (errmsg, "Reading the product version.");
+        sprintf (errmsg, "Reading the global and variable netCDF attributes.");
         error_handler (true, FUNC_NAME, errmsg);
         return (ERROR);
     }
 
     /* Read the project global attribute */
-    if ((retval = nc_get_att_text (ncid, NC_GLOBAL, "project", project)))
+    if ((status = nc_get_att_text (ncid, NC_GLOBAL, "project", project)))
     {
-        nc_strerror (retval);
+        nc_strerror (status);
         sprintf (errmsg, "Not able to obtain the project global attribute.");
         error_handler (true, FUNC_NAME, errmsg);
         return (ERROR);
     }
 
     /* Read the scene_id global attribute */
-    if ((retval = nc_get_att_text (ncid, NC_GLOBAL, "scene_id", scene_id)))
+    if ((status = nc_get_att_text (ncid, NC_GLOBAL, "scene_id", scene_id)))
     {
-        nc_strerror (retval);
+        nc_strerror (status);
         sprintf (errmsg, "Not able to obtain the scene_id global attribute.");
         error_handler (true, FUNC_NAME, errmsg);
         return (ERROR);
@@ -995,10 +826,10 @@ int read_goes_netcdf
     }
 
     /* Read the spatial_resolution global attribute */
-    if ((retval = nc_get_att_text (ncid, NC_GLOBAL, "spatial_resolution",
+    if ((status = nc_get_att_text (ncid, NC_GLOBAL, "spatial_resolution",
          spatial_resolution)))
     {
-        nc_strerror (retval);
+        nc_strerror (status);
         sprintf (errmsg, "Not able to obtain the spatial_resolution global "
             "attribute.");
         error_handler (true, FUNC_NAME, errmsg);
@@ -1021,6 +852,14 @@ int read_goes_netcdf
     gmeta->proj_info.lr_corner[1] = y_image_bounds[1];
     strcpy (gmeta->proj_info.grid_origin, "CENTER");
     gmeta->orientation_angle = 0.0;
+
+    /* Allocate bands for the XML structure */
+    metadata->nbands = NGOES_BANDS;
+    if (allocate_band_metadata (metadata, metadata->nbands) != SUCCESS)
+    {   /* Error messages already printed */
+        return (ERROR);
+    }
+    bmeta = metadata->band;
 
     /* Loop through the bands (CMI, DQF), fill in the information from above */
     for (i = 0; i < metadata->nbands; i++)
@@ -1461,6 +1300,7 @@ int convert_goes_to_espa
     }
 
     /* Read the attributes for CMI */
+    printf ("Reading CMI variable attributes\n");
     if (ncdf_read_gridded_attr (ncid, "CMI", &ncdf_attr[GOES_CMI]) != SUCCESS)
     {
         sprintf (errmsg, "Reading attributes for CMI variable in the GOES-R "
@@ -1470,6 +1310,7 @@ int convert_goes_to_espa
     }
 
     /* Read the attributes for DQF */
+    printf ("Reading DQF variable attributes\n");
     if (ncdf_read_gridded_attr (ncid, "DQF", &ncdf_attr[GOES_DQF]) != SUCCESS)
     {
         sprintf (errmsg, "Reading attributes for DQF variable in the GOES-R "
@@ -1479,6 +1320,7 @@ int convert_goes_to_espa
     }
 
     /* Read the attributes from the netCDF file into the GOES metadata struct */
+    printf ("Reading global and related variable attributes\n");
     if (read_goes_netcdf (goes_netcdf_file, ncid, ncdf_attr, espa_xml_file,
         &goes_xml) != SUCCESS)
     {
@@ -1503,6 +1345,7 @@ int convert_goes_to_espa
        processing/appending the ch03/nir file, then the CMI and DQF will be
        the third and fourth bands in the output XML file. */
     /* CMI */
+    printf ("Converting CMI variable to Geographic lat/long\n");
     xml_band = 0;
     if (convert_netcdf_to_img (ncid, ncdf_attr[GOES_CMI].primary_index,
         ncdf_attr[GOES_CMI].native_data_type, xml_band, &goes_xml,
@@ -1514,6 +1357,7 @@ int convert_goes_to_espa
     }
 
     /* DQF */
+    printf ("Converting DQF variable to Geographic lat/long\n");
     xml_band = 1;
     if (convert_netcdf_to_img (ncid, ncdf_attr[GOES_DQF].primary_index,
         ncdf_attr[GOES_DQF].native_data_type, xml_band, &goes_xml,
