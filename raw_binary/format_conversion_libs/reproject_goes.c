@@ -351,6 +351,14 @@ int reproject_goes
     gmeta->lr_corner[1] = gmeta->ul_corner[1] + bmeta->nsamps * pixsize_x;
     gmeta->proj_info.lr_corner[0] = gmeta->lr_corner[1]; /* x --> long */
     gmeta->proj_info.lr_corner[1] = gmeta->lr_corner[0]; /* y --> lat */
+    gmeta->bounding_coords[ESPA_EAST] = gmeta->lr_corner[1];  /* long */
+    gmeta->bounding_coords[ESPA_SOUTH] = gmeta->lr_corner[0]; /* lat */
+
+    /* Adjust the projection corners for the center of the pixel */
+    gmeta->proj_info.ul_corner[0] += pixsize_x * 0.5;
+    gmeta->proj_info.ul_corner[1] -= pixsize_y * 0.5;
+    gmeta->proj_info.lr_corner[0] -= pixsize_x * 0.5;
+    gmeta->proj_info.lr_corner[1] += pixsize_y * 0.5;
 
     /* Update the metadata for the current band in the output XML file.  Pixel
        size and pixel units need to be updated.  Resampling type is NN. */

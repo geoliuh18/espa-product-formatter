@@ -1106,8 +1106,8 @@ int setup_geo_xml
     gmeta->lr_corner[0] = gmeta->bounding_coords[ESPA_SOUTH];  /* lat */
     gmeta->lr_corner[1] = gmeta->bounding_coords[ESPA_EAST];   /* lon */
 
-    /* Copy the lat/long corners from the overall image to the projection
-       corners, since the projection corners will be lat/long. */
+    /* Use the bounding lat/long coordinates as the UL and LR corners in the
+       projection information */
     gmeta->proj_info.ul_corner[0] = gmeta->bounding_coords[ESPA_WEST];  /* x */
     gmeta->proj_info.ul_corner[1] = gmeta->bounding_coords[ESPA_NORTH]; /* y */
     gmeta->proj_info.lr_corner[0] = gmeta->bounding_coords[ESPA_EAST];  /* x */
