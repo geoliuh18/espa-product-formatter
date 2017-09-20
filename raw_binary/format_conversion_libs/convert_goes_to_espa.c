@@ -238,22 +238,26 @@ int read_projection_info
     char FUNC_NAME[] = "read_projection_info";  /* function name */
     char errmsg[STR_SIZE];   /* error message */
     char tmpstr[STR_SIZE];   /* temporary string for reading attributes */
+    char attname[STR_SIZE];  /* attribute name to process */
     int status;              /* return value */
+    size_t attlen = 0;       /* length of the string attribute */
 
     /* Read the grid_mapping_name, semi_major_axis, semi_minor_axis,
        longitude_of_projection_origin, and perspective_point_height attributes
        from the primary variable */
+
     /* Grid mapping name */
-    if ((status = nc_get_att_text (ncid, primary_index, "grid_mapping_name",
-         tmpstr)))
+    strcpy (attname, "grid_mapping_name");
+    nc_inq_attlen (ncid, primary_index, attname, &attlen);
+    if ((status = nc_get_att_text (ncid, primary_index, attname, tmpstr)))
     {
         nc_strerror (status);
-        sprintf (errmsg, "Not able to obtain the grid_mapping_name "
-            "attribute value from the primary variable "
-            "goes_imager_projection.");
+        sprintf (errmsg, "Not able to obtain the %s attribute value from the "
+            "primary variable goes_imager_projection.", attname);
         error_handler (true, FUNC_NAME, errmsg);
         return (ERROR);
     }
+    tmpstr[attlen] = '\0';
 
     if (strcmp (tmpstr, "geostationary"))
     {
@@ -426,6 +430,8 @@ int read_ncdf_metadata
     int ngatts;              /* number of global attributes in netCDF file */
     int unlimdimid;          /* ID of the unlimited dimension */
     int primary_index;       /* index of the primary variable */
+    size_t attlen = 0;       /* length of the string attribute */
+    char attname[STR_SIZE];  /* attribute name to process */
     char in_varnames[MAX_GRIDDED_NVARS][NC_MAX_NAME+1]; /* var names as read */
     int in_var_ndims[MAX_GRIDDED_NVARS];  /* num dims for each var as read */
     int in_var_dimids[MAX_GRIDDED_NVARS][MAX_GRIDDED_NDIMS];
@@ -476,17 +482,20 @@ int read_ncdf_metadata
             primary_index = i;
 
             /* Read the product_version attribute */
-            if ((status = nc_get_att_text (ncid, primary_index,
-                 "product_version", product_version)))
+            strcpy (attname, "product_version");
+            nc_inq_attlen (ncid, primary_index, attname, &attlen);
+            if ((status = nc_get_att_text (ncid, primary_index, attname,
+                 product_version)))
             {
                 nc_strerror (status);
-                sprintf (errmsg, "Not able to obtain the product_version "
-                    "attribute value from the primary variable "
-                    "algorithm_product_version_container.");
+                sprintf (errmsg, "Not able to obtain the %s attribute value "
+                    "from the primary variable "
+                    "algorithm_product_version_container.", attname);
                 error_handler (true, FUNC_NAME, errmsg);
                 return (ERROR);
             }
         }
+        product_version[attlen] = '\0';
 
         /* If this variable is geospatial_lat_lon_extent then process it */
         if (!strcmp (in_varnames[i], "geospatial_lat_lon_extent"))
@@ -604,6 +613,7 @@ int read_goes_netcdf
     char spatial_resolution[STR_SIZE]; /* spatial_resolution global attribute */
     char bandname[STR_SIZE];  /* GOES band name for the current file */
     char tmpstr[STR_SIZE];    /* temporary string for date/time info */
+    char attname[STR_SIZE];   /* attribute name to process */
     char goesstr[3];          /* string to hold the GOES instrument number */
     char yearstr[5];          /* string to hold acquisition/production year */
     char doystr[4];           /* string to hold acquisition/production DOY */
@@ -623,6 +633,7 @@ int read_goes_netcdf
     int prod_hour;            /* production hour */
     int prod_min;             /* production minute */
     int prod_sec;             /* production seconds */
+    size_t attlen = 0;        /* length of the string attribute */
     float x_image_bounds[2];  /* west/east image coordinates for the x dim */
     float y_image_bounds[2];  /* north/south image coordinates for the y dim */
 
@@ -796,22 +807,28 @@ int read_goes_netcdf
     }
 
     /* Read the project global attribute */
-    if ((status = nc_get_att_text (ncid, NC_GLOBAL, "project", project)))
+    strcpy (attname, "project");
+    nc_inq_attlen (ncid, NC_GLOBAL, attname, &attlen);
+    if ((status = nc_get_att_text (ncid, NC_GLOBAL, attname, project)))
     {
         nc_strerror (status);
-        sprintf (errmsg, "Not able to obtain the project global attribute.");
+        sprintf (errmsg, "Not able to obtain %s global attribute.", attname);
         error_handler (true, FUNC_NAME, errmsg);
         return (ERROR);
     }
+    project[attlen] = '\0';
 
     /* Read the scene_id global attribute */
-    if ((status = nc_get_att_text (ncid, NC_GLOBAL, "scene_id", scene_id)))
+    strcpy (attname, "scene_id");
+    nc_inq_attlen (ncid, NC_GLOBAL, attname, &attlen);
+    if ((status = nc_get_att_text (ncid, NC_GLOBAL, attname, scene_id)))
     {
         nc_strerror (status);
-        sprintf (errmsg, "Not able to obtain the scene_id global attribute.");
+        sprintf (errmsg, "Not able to obtain %s global attribute.", attname);
         error_handler (true, FUNC_NAME, errmsg);
         return (ERROR);
     }
+    scene_id[attlen] = '\0';
 
     /* Switch 'Full Disk' to uppercase.  Check for Full Disk or CONUS.  Those
        are the only two supported scene types. */
@@ -828,15 +845,17 @@ int read_goes_netcdf
     }
 
     /* Read the spatial_resolution global attribute */
-    if ((status = nc_get_att_text (ncid, NC_GLOBAL, "spatial_resolution",
+    strcpy (attname, "spatial_resolution");
+    nc_inq_attlen (ncid, NC_GLOBAL, attname, &attlen);
+    if ((status = nc_get_att_text (ncid, NC_GLOBAL, attname,
          spatial_resolution)))
     {
         nc_strerror (status);
-        sprintf (errmsg, "Not able to obtain the spatial_resolution global "
-            "attribute.");
+        sprintf (errmsg, "Not able to obtain %s global attribute.", attname);
         error_handler (true, FUNC_NAME, errmsg);
         return (ERROR);
     }
+    spatial_resolution[attlen] = '\0';
 
     /* Adjust the UL and LR outer extent coordinates by the pixel size to
        represent the center of the pixel.  Use the pixel size from the CMI

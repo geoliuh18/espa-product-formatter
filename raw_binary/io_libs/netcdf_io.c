@@ -89,6 +89,7 @@ int ncdf_read_gridded_attr
     char in_varnames[MAX_GRIDDED_NDIMS][NC_MAX_NAME+1]; /* var names as read */
     char tmpstr[STR_SIZE];   /* temporary string for reading text */
     char ignore_str[STR_SIZE]; /* temporary string for reading text */
+    char attname[STR_SIZE];  /* attribute name to process */
     int ndims;               /* number of input dimensions in netCDF file */
     int nvars;               /* number of input variables in netCDF file */
     int ngatts;              /* number of global attributes in netCDF file */
@@ -101,6 +102,7 @@ int ncdf_read_gridded_attr
     int in_var_natts[MAX_GRIDDED_NDIMS];  /* number of var attributes as read */
     int i, d, retval;        /* loop indexes and error handling */
     int no_fill;             /* true if no_fill mode is set for this var */
+    size_t attlen = 0;       /* length of the string attribute */
     nc_type in_data_type[MAX_GRIDDED_NVARS];
                              /* data type for each variable as read */
     size_t in_dimsizes[MAX_GRIDDED_NDIMS];   /* dimension sizes as read
@@ -226,8 +228,9 @@ int ncdf_read_gridded_attr
 
     /* Get the pixel size for the specified primary variable */
     attr->pixel_size_defined = true;
-    if ((retval = nc_get_att_text (ncid, attr->primary_index,
-         "resolution", tmpstr)))
+    strcpy (attname, "resolution");
+    nc_inq_attlen (ncid, attr->primary_index, attname, &attlen);
+    if ((retval = nc_get_att_text (ncid, attr->primary_index, attname, tmpstr)))
     {
         attr->pixel_size_defined = false;
     }
@@ -238,6 +241,7 @@ int ncdf_read_gridded_attr
         sscanf (tmpstr, "%s %lf %s %s %lf %s", ignore_str, &attr->pixel_size[1],
         ignore_str, ignore_str, &attr->pixel_size[0], ignore_str);
     }
+    tmpstr[attlen] = '\0';
 
     /* Get the scale factor for the specified primary variable */
     attr->scale_defined = true;
