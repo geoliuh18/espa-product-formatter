@@ -539,6 +539,7 @@ int read_ncdf_metadata
                 error_handler (true, FUNC_NAME, errmsg);
                 return (ERROR);
             }
+printf ("DEBUG: x_image_bounds: %f, %f\n", x_image_bounds[0], x_image_bounds[1]);
         }
 
         /* If this variable is y_image_bounds then process it */
@@ -557,6 +558,7 @@ int read_ncdf_metadata
                 error_handler (true, FUNC_NAME, errmsg);
                 return (ERROR);
             }
+printf ("DEBUG: y_image_bounds: %f, %f\n", y_image_bounds[0], y_image_bounds[1]);
         }
     }  /* for i in nvars */
 
@@ -843,6 +845,8 @@ int read_goes_netcdf
     x_image_bounds[1] -= ncdf_attr[GOES_CMI].pixel_size[0] * 0.5;
     y_image_bounds[0] -= ncdf_attr[GOES_CMI].pixel_size[1] * 0.5;
     y_image_bounds[1] += ncdf_attr[GOES_CMI].pixel_size[1] * 0.5;
+printf ("DEBUG: adjusted x_image_bounds: %f, %f\n", x_image_bounds[0], x_image_bounds[1]);
+printf ("DEBUG: adjusted y_image_bounds: %f, %f\n", y_image_bounds[0], y_image_bounds[1]);
 
     /* Projection information is in radians */
     strcpy (gmeta->proj_info.units, "radians");
@@ -1028,15 +1032,6 @@ int read_goes_netcdf
         }
     }  /* end for i (loop through the grids) */
 
-    /* Compute the lat/long for the UL and LR projection x/y corners */
-    goes_xy_to_latlon (gmeta->proj_info.ul_corner[0],
-        gmeta->proj_info.ul_corner[1], &gmeta->proj_info,
-        &gmeta->ul_corner[0], &gmeta->ul_corner[1]);
-
-    goes_xy_to_latlon (gmeta->proj_info.lr_corner[0],
-        gmeta->proj_info.lr_corner[1], &gmeta->proj_info,
-        &gmeta->lr_corner[0], &gmeta->lr_corner[1]);
-
     /* Successful read */
     return (SUCCESS);
 }
@@ -1046,7 +1041,8 @@ int read_goes_netcdf
 MODULE:  setup_geo_xml
 
 PURPOSE: Copies the GOES XML metadata and sets up the geographic projection
-information for the reprojected data.
+information for the reprojected data.  The UL/LR corners are set up to be the
+same as the bounding coordinates.
 
 RETURN VALUE:
 Type = int
@@ -1084,12 +1080,19 @@ int setup_geo_xml
     gmeta->proj_info.datum_type = ESPA_NAD83;
     strcpy (gmeta->proj_info.units, "degrees");
 
+    /* Use the bounding lat/long coordinates as the UL and LR corners in our
+       geographic product */
+    gmeta->ul_corner[0] = gmeta->bounding_coords[ESPA_NORTH];  /* lat */
+    gmeta->ul_corner[1] = gmeta->bounding_coords[ESPA_WEST];   /* lon */
+    gmeta->lr_corner[0] = gmeta->bounding_coords[ESPA_SOUTH];  /* lat */
+    gmeta->lr_corner[1] = gmeta->bounding_coords[ESPA_EAST];   /* lon */
+
     /* Copy the lat/long corners from the overall image to the projection
        corners, since the projection corners will be lat/long. */
-    gmeta->proj_info.ul_corner[0] = gmeta->ul_corner[1];  /* x --> long */
-    gmeta->proj_info.ul_corner[1] = gmeta->ul_corner[0];  /* y --> lat */
-    gmeta->proj_info.lr_corner[0] = gmeta->lr_corner[1];  /* x --> long */
-    gmeta->proj_info.lr_corner[1] = gmeta->lr_corner[0];  /* y --> lat */
+    gmeta->proj_info.ul_corner[0] = gmeta->bounding_coords[ESPA_WEST];  /* x */
+    gmeta->proj_info.ul_corner[1] = gmeta->bounding_coords[ESPA_NORTH]; /* y */
+    gmeta->proj_info.lr_corner[0] = gmeta->bounding_coords[ESPA_EAST];  /* x */
+    gmeta->proj_info.lr_corner[1] = gmeta->bounding_coords[ESPA_SOUTH]; /* y */
 
     /* Clear out the geostationary projection parameters */
     gmeta->proj_info.semi_major_axis = ESPA_FLOAT_META_FILL;

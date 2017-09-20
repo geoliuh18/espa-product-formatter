@@ -21,14 +21,18 @@ MODULE:  goes_xy_to_latlon
 PURPOSE: Converts the GOES-R ABI x/y coordinates to lat/long
 
 RETURN VALUE:
-Type = N/A
+Type = int
+Value           Description
+-----           -----------
+ERROR           Specified x,y is not a valid lat,long
+SUCCESS         Successfully converted x,y to lat,long
 
 NOTES:
 1. This conversion comes from the GOES-R ABI Product User Guide, L2, v5.
    Section 4.2.8.1 provides the equations for converting x, y coordinates to
    geodetic lat, long.
 ******************************************************************************/
-void goes_xy_to_latlon
+int goes_xy_to_latlon
 (
     double x,      /* I: GOES x coordinate - E/W scan angle (radians) */
     double y,      /* I: GOES y coordinate - N/S scan angle (radians) */
@@ -47,6 +51,7 @@ void goes_xy_to_latlon
     double S2_y;     /* S_y squared */
     double r_s;      /* distance from the satellite to point x,y */
     double a, b, c;  /* coefficients to be used */
+    double tmp_val;  /* used for storing intermediate results */
     double sin_x, sin_y;     /* sine of x/y */
     double cos_x, cos_y;     /* cosine of x/y */
     double sin2_x, sin2_y;   /* sine of x/y, squared */
@@ -55,11 +60,16 @@ void goes_xy_to_latlon
     double H2_minus_S_x;     /* (H - Sx) squared */
     double lat_rad, lon_rad; /* latitude/longitude in radians */
 
+printf ("DEBUG: x,y: %f, %f\n", x, y);
     /* Pull the variables from the XML metadata projection info */
     r_pol = proj_info->semi_minor_axis;
     r_eq = proj_info->semi_major_axis;
     lambda_0 = proj_info->central_meridian * RAD;  /* convert to radians */
     H = proj_info->satellite_height + proj_info->semi_major_axis;
+printf ("DEBUG: r_pol = %f\n", r_pol);
+printf ("DEBUG: r_eq = %f\n", r_eq);
+printf ("DEBUG: lambda_0 = %f\n", lambda_0);
+printf ("DEBUG: H = %f\n", H);
 
     /* Compute coefficients a, b, and c */
     sin_x = sin (x);
@@ -76,8 +86,15 @@ void goes_xy_to_latlon
     b = -2.0 * H * cos_x * cos_y;
     c = H * H - r2_eq;
 
-    /* Compute distance from the satellite to point x,y */
-    r_s = (-b - (sqrt (b * b - 4.0 * a * c))) / (2.0 * a);
+    /* Compute distance from the satellite to point x,y.  If the intermediate
+       value of b^2 * 4ac is negative, then the lat/long cannot be computed
+       and is not valid. */
+    tmp_val = b * b - 4.0 * a * c;
+    if (tmp_val < 0.0)
+        return (ERROR);
+    r_s = (-b - (sqrt (tmp_val))) / (2.0 * a);
+printf ("DEBUG: result = %lf\n", tmp_val);
+printf ("DEBUG: r_s = %f\n", r_s);
 
     /* Compute coefficients S_x, S_y, S_z */
     S_x = r_s * cos_x * cos_y;
@@ -86,6 +103,9 @@ void goes_xy_to_latlon
     S2_y = S_y * S_y;
     H_minus_S_x = H - S_x;
     H2_minus_S_x = H_minus_S_x * H_minus_S_x;
+printf ("DEBUG: S_x = %f\n", S_x);
+printf ("DEBUG: S_y = %f\n", S_y);
+printf ("DEBUG: S_z = %f\n", S_z);
 
     /* Compute the latitude/longitude for point x,y in radians and convert to
        degrees */
@@ -93,6 +113,8 @@ void goes_xy_to_latlon
     *lat = lat_rad * DEG;
     lon_rad = lambda_0 + atan (S_y / H_minus_S_x);
     *lon = lon_rad * DEG;
+
+    return (SUCCESS);
 }
 
 
@@ -199,6 +221,9 @@ void determine_pixsize_degs
 )
 {
     /* Compute the pixel size in degrees */
+printf ("DEBUG: UL corner lat,long: %f, %f\n", gmeta->ul_corner[0], gmeta->ul_corner[1]);
+printf ("DEBUG: LR corner lat,long: %f, %f\n", gmeta->lr_corner[0], gmeta->lr_corner[1]);
+printf ("nlines, nsamps: %d, %d\n", bmeta->nlines, bmeta->nsamps);
     *pixsize_y = (gmeta->ul_corner[0] - gmeta->lr_corner[0]) / bmeta->nlines;
     *pixsize_x = (gmeta->lr_corner[1] - gmeta->ul_corner[1]) / bmeta->nsamps;
 }
@@ -207,21 +232,22 @@ void determine_pixsize_degs
 /******************************************************************************
 MODULE:  reproject_goes
 
-PURPOSE: Convert the GOES-R ABI netCDF band to an ESPA raw binary (.img) file
-and write the associated ENVI header for this band.
+PURPOSE: Reproject the GOES data to the geographic lat/long projection, using
+native resolutions in degrees.
 
 RETURN VALUE:
 Type = int
 Value           Description
 -----           -----------
-ERROR           Error converting the GOES-R ABI band
-SUCCESS         Successfully converted GOES-R ABI band to raw binary
+ERROR           Error reprojecting the GOES-R ABI band
+SUCCESS         Successfully reprojected GOES-R ABI band
 
 NOTES:
 1. It is assumed the input goes_bmeta and goes_gmeta structures are populated
-   from reading the input GOES data.
-2. The output bmeta pixel size and units will be updated based on the
-   reprojection.
+   from reading the input GOES data. The projection and lat/long coordinates
+   should reflect the overall bounding lat/long values.
+2. The output bmeta pixel size and units will be updated to convert the GOES
+   radian resolution into degrees.
 3. The output gmeta LR corner is updated based on the reprojected data.
 ******************************************************************************/
 int reproject_goes
@@ -238,8 +264,10 @@ int reproject_goes
 {
     char FUNC_NAME[] = "reproject_goes";  /* function name */
     char errmsg[STR_SIZE];    /* error message */
+    int tmp_percent;          /* current percentage for printing status */
+    int curr_tmp_percent;     /* percentage for current line */
     int line, samp;           /* looping variable for line, sample of image */
-    int pix;                  /* looping variable for the pixels in image */
+    long pix;                 /* looping variable for the pixels in image */
     int x_loc, y_loc;         /* x,y location in the input buffer */
     double pixsize_x;         /* output pixel size for the longitude (degs) */
     double pixsize_y;         /* output pixel size for the latitude (degs) */
@@ -250,9 +278,36 @@ int reproject_goes
     int16_t *in_file_buf_int16 = NULL;  /* int16 pointer to the input buffer */
     int16_t *out_file_buf_int16 = NULL; /* int16 pointer to the output buffer */
 
-    /* Compute the output pixel size in degrees */
-    determine_pixsize_degs (goes_gmeta, goes_bmeta, &pixsize_x, &pixsize_y);
+    /* Assign the output pixel size in degrees. If this is a 14 microradian
+       band, then the output resolution will be 0.00449 degrees for both x&y
+       directions. If this is a 28 microradian band, then the output resolution
+       will be 0.00898 degrees for both x&y directions. These map to the
+       documented 500m and 1000m resolutions for these bands, respectively.
+       The conversion uses the fact that 1 deg = 111.325 km, on average.
+       Use the x resolution for comparison, given that both the x and y
+       resolutions are the same for the GOES geostationary bands. */
+    if (fabs (goes_bmeta->pixel_size[0] - 0.000014) < 0.0000009)
+        pixsize_x = pixsize_y = 0.00449;  /* 0.5 km */
+    else if (fabs (goes_bmeta->pixel_size[0] - 0.000028) < 0.0000009)
+        pixsize_x = pixsize_y = 0.00898;  /* 1 km */
+    else
+    {  /* not set up to support anything that isn't 14 or 28 microradian */
+        sprintf (errmsg, "Unexpected resolution of the GOES band %f.  "
+            "Currently only 14 and 28 microradian bands are supported.",
+            goes_bmeta->pixel_size[0]);
+        error_handler (true, FUNC_NAME, errmsg);
+        return (ERROR);
+    }
     printf ("DEBUG: Output pixel size for geographic: %lf x %lf\n", pixsize_x, pixsize_y);
+
+    /* Determine how many lines and samples are required at the current
+       resolution to cover the lat/long boundaries. If there are any floating
+       point values, round up to the next line/sample. */
+    bmeta->nsamps = ceil ((gmeta->proj_info.lr_corner[0] -
+        gmeta->proj_info.ul_corner[0]) / pixsize_x);
+    bmeta->nlines = ceil ((gmeta->proj_info.ul_corner[1] -
+        gmeta->proj_info.lr_corner[1]) / pixsize_y);
+    printf ("DEBUG: Output nlines, nsamps for geographic: %d x %d\n", bmeta->nlines, bmeta->nsamps);
 
     /* Determine the number of bytes per pixel for the output product */
     if (bmeta->data_type == ESPA_INT8)
@@ -310,8 +365,21 @@ int reproject_goes
        since we also need to support data quality flags. */
     pix = 0;
     lat = gmeta->ul_corner[0];
+    tmp_percent = 0;
     for (line = 0; line < bmeta->nlines; line++, lat -= pixsize_y)
     {
+        /* update status */
+        curr_tmp_percent = 100 * line / bmeta->nlines;
+        if (curr_tmp_percent > tmp_percent)
+        {
+            tmp_percent = curr_tmp_percent;
+            if (tmp_percent % 10 == 0)
+            {
+                printf ("%d%% ", tmp_percent);
+                fflush (stdout);
+            }
+        }
+
         lon = gmeta->ul_corner[1];
         for (samp = 0; samp < bmeta->nsamps; samp++, lon += pixsize_x, pix++)
         {
@@ -350,16 +418,19 @@ int reproject_goes
                 {
                     if (bmeta->data_type == ESPA_INT8)
                         out_file_buf_int8[pix] =
-                            in_file_buf_int8[y_loc*bmeta->nsamps + x_loc];
+                            in_file_buf_int8[y_loc*goes_bmeta->nsamps + x_loc];
                     else if (bmeta->data_type == ESPA_INT16)
                         out_file_buf_int16[pix] =
-                            in_file_buf_int16[y_loc*bmeta->nsamps + x_loc];
+                            in_file_buf_int16[y_loc*goes_bmeta->nsamps + x_loc];
                 }
             }
         }
     }
 
     /* Successful conversion */
+    printf ("100%%\n");
+    fflush (stdout);
+
     return (SUCCESS);
 }
 

@@ -24,7 +24,7 @@ NOTES:
 
 
 /* Prototypes */
-void goes_xy_to_latlon
+int goes_xy_to_latlon
 (
     double x,      /* I: GOES x coordinate - E/W scan angle (radians) */
     double y,      /* I: GOES y coordinate - N/S scan angle (radians) */
