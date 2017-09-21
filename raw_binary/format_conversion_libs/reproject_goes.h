@@ -56,6 +56,7 @@ int reproject_goes
     Espa_band_meta_t *goes_bmeta,   /* I: GOES band metadata */
     Espa_global_meta_t *gmeta,  /* I/O: output global metadata */
     Espa_band_meta_t *bmeta,    /* I/O: output band metadata */
+    bool adjust_gmeta,          /* I: should the global metadata be adjusted */
     void *in_file_buf,          /* I: input file buffer of GOES data,
                                       nlines x nsamps */
     void **out_file_buf         /* I: pointer to output file buffer for

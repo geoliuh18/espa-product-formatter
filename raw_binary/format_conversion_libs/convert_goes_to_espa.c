@@ -1107,11 +1107,13 @@ int setup_geo_xml
     gmeta->lr_corner[1] = gmeta->bounding_coords[ESPA_EAST];   /* lon */
 
     /* Use the bounding lat/long coordinates as the UL and LR corners in the
-       projection information */
+       projection information. We don't have the reprojected pixel size yet,
+       so just leave these as the corner of the corner. */
     gmeta->proj_info.ul_corner[0] = gmeta->bounding_coords[ESPA_WEST];  /* x */
     gmeta->proj_info.ul_corner[1] = gmeta->bounding_coords[ESPA_NORTH]; /* y */
     gmeta->proj_info.lr_corner[0] = gmeta->bounding_coords[ESPA_EAST];  /* x */
     gmeta->proj_info.lr_corner[1] = gmeta->bounding_coords[ESPA_SOUTH]; /* y */
+    strcpy (gmeta->proj_info.grid_origin, "UL");
 
     /* Clear out the geostationary projection parameters */
     gmeta->proj_info.semi_major_axis = ESPA_FLOAT_META_FILL;
@@ -1161,6 +1163,8 @@ int convert_netcdf_to_img
     char envi_file[STR_SIZE]; /* name of the output ENVI header file */
     int nbytes;               /* number of bytes in the data type */
     int count;                /* number of chars copied in snprintf */
+    bool adjust_gmeta;        /* should the global metadata be adjusted
+                                 during reprojection? */
     void *file_buf = NULL;    /* pointer to input file buffer */
     void *reprojected_file_buf = NULL;  /* pointer to reprojected file buffer */
     FILE *fp_rb = NULL;       /* file pointer for the raw binary file */
@@ -1195,9 +1199,15 @@ int convert_netcdf_to_img
         return (ERROR);
     }
 
-    /* Reproject the image from Geostationary to Geographic lat/long */
-    if (reproject_goes (goes_gmeta, goes_bmeta, gmeta, bmeta, file_buf,
-        &reprojected_file_buf) != SUCCESS)
+    /* Reproject the image from Geostationary to Geographic lat/long. Only
+       adjust the global metadata for the reprojected product on the first
+       band. */
+    if (xml_band == 0)
+        adjust_gmeta = true;
+    else
+        adjust_gmeta = false;
+    if (reproject_goes (goes_gmeta, goes_bmeta, gmeta, bmeta, adjust_gmeta,
+        file_buf, &reprojected_file_buf) != SUCCESS)
     {
         sprintf (errmsg, "Reprojecting the gridded netCDF data");
         error_handler (true, FUNC_NAME, errmsg);

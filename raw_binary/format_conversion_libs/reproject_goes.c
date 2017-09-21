@@ -249,6 +249,13 @@ NOTES:
 2. The output bmeta pixel size and units will be updated to convert the GOES
    radian resolution into degrees.
 3. The output gmeta LR corner is updated based on the reprojected data.
+4. This routine is called twice per "band" - once for the CMI and once for
+   the DQF.  Only update the global metadata the first time through.
+
+TODO: The corners need to be fixed/implemented so that the UL and LR remain
+      static, regardless of the resolution.  The red band and NIR band are
+      different resolutions and we can't allow the global lat/long boundaries
+      to get updated when we switch from processing red to NIR.
 ******************************************************************************/
 int reproject_goes
 (
@@ -256,6 +263,7 @@ int reproject_goes
     Espa_band_meta_t *goes_bmeta,   /* I: GOES band metadata */
     Espa_global_meta_t *gmeta,  /* I/O: output/reprojected global metadata */
     Espa_band_meta_t *bmeta,    /* I/O: output/reprojected band metadata */
+    bool adjust_gmeta,          /* I: should the global metadata be adjusted */
     void *in_file_buf,          /* I: input file buffer of GOES data,
                                       nlines x nsamps */
     void **out_file_buf         /* I: pointer to output file buffer for
@@ -307,6 +315,14 @@ int reproject_goes
         gmeta->proj_info.ul_corner[0]) / pixsize_x);
     bmeta->nlines = ceil ((gmeta->proj_info.ul_corner[1] -
         gmeta->proj_info.lr_corner[1]) / pixsize_y);
+
+    /* If the UL and LR projection corners refer to the center of the pixel,
+       then add an extra line and sample */
+    if (!strcmp (gmeta->proj_info.grid_origin, "CENTER"))
+    {
+        bmeta->nlines++;
+        bmeta->nsamps++;
+    }
     printf ("DEBUG: Output nlines, nsamps for geographic: %d x %d\n", bmeta->nlines, bmeta->nsamps);
 
     /* Determine the number of bytes per pixel for the output product */
@@ -346,19 +362,32 @@ int reproject_goes
         return (ERROR);
     }
 
-    /* Determine the new LR corner for the output product */
-    gmeta->lr_corner[0] = gmeta->ul_corner[0] - bmeta->nlines * pixsize_y;
-    gmeta->lr_corner[1] = gmeta->ul_corner[1] + bmeta->nsamps * pixsize_x;
-    gmeta->proj_info.lr_corner[0] = gmeta->lr_corner[1]; /* x --> long */
-    gmeta->proj_info.lr_corner[1] = gmeta->lr_corner[0]; /* y --> lat */
-    gmeta->bounding_coords[ESPA_EAST] = gmeta->lr_corner[1];  /* long */
-    gmeta->bounding_coords[ESPA_SOUTH] = gmeta->lr_corner[0]; /* lat */
+    /* Adjust the global metadata if specified */
+    if (adjust_gmeta)
+    {
+printf ("ADJUSTING GMETA corners\n");
+        /* Determine the new LR corner for the output product */
+        gmeta->lr_corner[0] = gmeta->ul_corner[0] - bmeta->nlines * pixsize_y;
+        gmeta->lr_corner[1] = gmeta->ul_corner[1] + bmeta->nsamps * pixsize_x;
+        gmeta->bounding_coords[ESPA_EAST] = gmeta->lr_corner[1];  /* long */
+        gmeta->bounding_coords[ESPA_SOUTH] = gmeta->lr_corner[0]; /* lat */
+printf ("LR corner lat/long: %lf, %lf\n", gmeta->lr_corner[0], gmeta->lr_corner[1]);
 
-    /* Adjust the projection corners for the center of the pixel */
-    gmeta->proj_info.ul_corner[0] += pixsize_x * 0.5;
-    gmeta->proj_info.ul_corner[1] -= pixsize_y * 0.5;
-    gmeta->proj_info.lr_corner[0] -= pixsize_x * 0.5;
-    gmeta->proj_info.lr_corner[1] += pixsize_y * 0.5;
+        /* If not already adjusted to the center, adjust the projection corners
+           for the center of the pixel, then determine LR projection corner */
+        if (strcmp (gmeta->proj_info.grid_origin, "CENTER"))
+        {
+            gmeta->proj_info.ul_corner[0] += pixsize_x * 0.5;
+            gmeta->proj_info.ul_corner[1] -= pixsize_y * 0.5;
+            strcpy (gmeta->proj_info.grid_origin, "CENTER");
+printf ("UL corner x,y: %lf, %lf\n", gmeta->proj_info.ul_corner[0], gmeta->proj_info.ul_corner[1]);
+        }
+        gmeta->proj_info.lr_corner[0] = gmeta->proj_info.ul_corner[0] +
+            (bmeta->nsamps - 1) * pixsize_x;
+        gmeta->proj_info.lr_corner[1] = gmeta->proj_info.ul_corner[1] -
+            (bmeta->nlines - 1) * pixsize_y;
+printf ("LR corner x,y: %lf, %lf\n", gmeta->proj_info.lr_corner[0], gmeta->proj_info.lr_corner[1]);
+    }
 
     /* Update the metadata for the current band in the output XML file.  Pixel
        size and pixel units need to be updated.  Resampling type is NN. */
