@@ -1,7 +1,7 @@
 # =======================================================
 #   Binary Build Layer
 # =======================================================
-FROM jbrinkmann/lagoon-dragonfly:devel-1.0.0 as builder
+FROM jbrinkmann/lagoon-dragonfly:devel-1.0.0.0 as builder
 LABEL maintainer="USGS EROS LSRD http://eros.usgs.gov" \
       description="ESPA Product Formatting Software"
 
