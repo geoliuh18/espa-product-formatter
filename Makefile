@@ -1,55 +1,29 @@
-#-----------------------------------------------------------------------------
-# Makefile
-#
-# Project Name: product formatter
-#-----------------------------------------------------------------------------
-.PHONY: check-environment all install clean all-raw-binary install-raw-binary clean-raw-binary rpms schema-rpm
+.DEFAULT_GOAL := build
+VERSION    := $(or $(TRAVIS_TAG),$(shell cat version.txt))
+REPO       := $(or $(DOCKER_USER),$(shell whoami))"/$(shell basename $(shell pwd))"
+BRANCH     := $(or $(TRAVIS_BRANCH),$(shell git rev-parse --abbrev-ref HEAD | tr / -))
+COMMIT     := $(or $(TRAVIS_COMMIT),$(shell git rev-parse HEAD))
+COMMIT_TAG := $(REPO):$(COMMIT)
+BRANCH_TAG := $(REPO):$(BRANCH)-$(VERSION)
 
-include make.config
+build:
+	@docker build --target builder -f Dockerfile -t $(COMMIT_TAG) --rm=true --compress $(PWD)
 
-DIR_RAW_BINARY = raw_binary
-DIR_PYTHON = py_modules
-DIR_SCHEMA = schema
+tag:
+	@docker tag $(COMMIT_TAG) $(BRANCH_TAG)
+	@$(shell [ $(BRANCH) == master ] && docker tag $(COMMIT_TAG) $(REPO):latest)
 
-all: all-raw-binary
+login:
+	@$(if $(and $(DOCKER_USER), $(DOCKER_PASS)), docker login -u $(DOCKER_USER) -p $(DOCKER_PASS), docker login)
 
-install: check-environment install-raw-binary install-python install-schema
+push: login
+	docker push $(REPO)
 
-clean: clean-raw-binary
+debug:
+	@echo "VERSION:    $(VERSION)"
+	@echo "REPO:       $(REPO)"
+	@echo "BRANCH:     $(BRANCH)"
+	@echo "COMMIT_TAG: $(COMMIT_TAG)"
+	@echo "BRANCH_TAG: $(BRANCH_TAG)"
 
-#-----------------------------------------------------------------------------
-all-raw-binary:
-	echo "make all in $(DIR_RAW_BINARY)"; \
-        (cd $(DIR_RAW_BINARY); $(MAKE) all);
-
-install-raw-binary:
-	echo "make install in $(DIR_RAW_BINARY)"; \
-        (cd $(DIR_RAW_BINARY); $(MAKE) install);
-
-clean-raw-binary:
-	echo "make clean in $(DIR_RAW_BINARY)"; \
-        (cd $(DIR_RAW_BINARY); $(MAKE) clean);
-
-#-----------------------------------------------------------------------------
-install-python:
-	echo "make install in $(DIR_PYTHON)"; \
-        (cd $(DIR_PYTHON); $(MAKE) install);
-
-#-----------------------------------------------------------------------------
-install-schema:
-	echo "make install in $(DIR_SCHEMA)"; \
-        (cd $(DIR_SCHEMA); $(MAKE) install);
-
-#-----------------------------------------------------------------------------
-rpms:
-	rpmbuild -bb --clean RPM_spec_files/RPM.spec
-
-schema-rpm:
-	rpmbuild -bb --clean RPM_spec_files/RPM-SCHEMAS.spec
-
-#-----------------------------------------------------------------------------
-check-environment:
-ifndef PREFIX
-    $(error Environment variable PREFIX is not defined)
-endif
-
+docker-deploy: debug build tag push
