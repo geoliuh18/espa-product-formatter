@@ -4,6 +4,7 @@
 FROM usgseros/espa-processing:docker-devel-3.0rc1.dev1 as builder
 LABEL maintainer="USGS EROS LSRD http://eros.usgs.gov" \
       description="ESPA Product Formatting Software"
+USER root
 
 ENV PREFIX=/usr/local \
     ESPAINC=/usr/local/include \
@@ -22,4 +23,6 @@ RUN cd ${SRC_DIR}/raw_binary \
     && make install \
     && cd ${SRC_DIR} \
     && rm -rf *
+
+USER espadev
 
