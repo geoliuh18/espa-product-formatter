@@ -11,7 +11,7 @@ include $(TOP)/make.config
 #-----------------------------------------------------------------------------
 # Set up compile options
 #CC    = gcc
-CC=/usr/local/bin/mpicc
+CC    =/opt/mpi/bin/mpicc
 RM    = rm
 EXTRA = -Wall $(EXTRA_OPTIONS)
 
@@ -206,7 +206,7 @@ LIB12   = \
     -lpthread \
     -lrt \
     -ldl \
-    -lpnetcdf
+    -L$(PNETCDFLIB) -lpnetcdf
 
 LIB13   = \
     -L../lib -l_espa_raw_binary -l_espa_common \
