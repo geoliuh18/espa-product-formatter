@@ -11,7 +11,7 @@ include $(TOP)/make.config
 
 #-----------------------------------------------------------------------------
 # Set up compile options
-CC    = gcc
+CC    = /opt/mpi/bin/mpicc
 RM    = rm
 AR    = ar rcsv
 EXTRA = -Wall $(EXTRA_OPTIONS)
